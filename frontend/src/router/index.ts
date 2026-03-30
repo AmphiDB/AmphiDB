@@ -41,6 +41,21 @@ const routes: RouteRecordRaw[] = [
     name: 'Logs',
     component: () => import('../views/LogViewer.vue'),
   },
+  {
+    path: '/mongo/connections',
+    name: 'MongoConnections',
+    component: () => import('../views/mongo/MongoConnectionManager.vue'),
+  },
+  {
+    path: '/mongo/workspace',
+    name: 'MongoWorkspace',
+    component: () => import('../views/mongo/MongoWorkspace.vue'),
+  },
+  {
+    path: '/mongo/query',
+    name: 'MongoQuery',
+    component: () => import('../views/mongo/MongoQueryEditor.vue'),
+  },
 ];
 
 const router = createRouter({

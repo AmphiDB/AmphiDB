@@ -7,6 +7,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ConnectionsStorage is a legacy storage implementation (superseded by internal/storage).
+// Kept for reference only; not used by the application.
 type ConnectionsStorage struct {
 	stroage *LocalStorage
 	mutex   sync.Mutex
@@ -18,39 +20,24 @@ func NewConnectionsStorage() *ConnectionsStorage {
 	}
 }
 
-func (c *ConnectionsStorage) DefaultConnections() types.Connections {
-	return types.Connections{}
+func (c *ConnectionsStorage) DefaultConnections() []types.ConnectionProfile {
+	return []types.ConnectionProfile{}
 }
 
-func (c *ConnectionsStorage) defaultConnectionsItem() types.ConnectionConfig {
-	return types.ConnectionConfig{
-		Host:              "127.0.0.1",
-		Port:              3306,
-		Username:          "root",
-		Password:          "123456",
-		Database:          "",
-		MaxOpenConns:      10,
-		MaxIdleConns:      10,
-		ConnMaxLifetime:   3600,
-		ParseTime:         true,
-		Charset:           "utf8mb4",
-		ReadOnly:          false,
-		Loc:               "Local",
-		HeartbeatInterval: 10,
-		SSH: types.ConnectionSSH{
-			Enable:    false,
-			Host:      "",
-			Port:      22,
-			Username:  "",
-			Password:  "",
-			LoginType: "password",
-			KeyPath:   "",
-		},
+func (c *ConnectionsStorage) defaultConnectionsItem() types.ConnectionProfile {
+	return types.ConnectionProfile{
+		Host:     "127.0.0.1",
+		Port:     3306,
+		Username: "root",
+		Password: "123456",
+		Database: "",
+		Charset:  "utf8mb4",
+		Timeout:  10,
 	}
 }
 
-// 获取连接配置
-func (c *ConnectionsStorage) GetConnections() (ret types.Connections) {
+// GetConnections retrieves all connection profiles.
+func (c *ConnectionsStorage) GetConnections() (ret []types.ConnectionProfile) {
 	conf, err := c.stroage.Load()
 	ret = c.DefaultConnections()
 	if err != nil {
@@ -68,20 +55,19 @@ func (c *ConnectionsStorage) GetConnections() (ret types.Connections) {
 	return
 }
 
-// 根据名称获取连接配置
-func (c *ConnectionsStorage) GetConnectionByName(name string) types.ConnectionConfig {
+// GetConnectionByName retrieves a connection profile by name.
+func (c *ConnectionsStorage) GetConnectionByName(name string) types.ConnectionProfile {
 	connections := c.GetConnections()
 	for _, connection := range connections {
 		if connection.Name == name {
 			return connection
 		}
 	}
-
-	return types.ConnectionConfig{}
+	return types.ConnectionProfile{}
 }
 
-// 保存连接配置
-func (c *ConnectionsStorage) SaveConnections(connections types.Connections) error {
+// SaveConnections saves all connection profiles.
+func (c *ConnectionsStorage) SaveConnections(connections []types.ConnectionProfile) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	conf, err := yaml.Marshal(connections)
@@ -91,13 +77,11 @@ func (c *ConnectionsStorage) SaveConnections(connections types.Connections) erro
 	return c.stroage.Save(conf)
 }
 
-// 新增连接配置
-func (c *ConnectionsStorage) AddConnections(connections types.ConnectionConfig) error {
+// AddConnections adds a new connection profile.
+func (c *ConnectionsStorage) AddConnections(conn types.ConnectionProfile) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	name := connections.Name
-
-	conf, err := yaml.Marshal(connections)
+	conf, err := yaml.Marshal(conn)
 	if err != nil {
 		return err
 	}

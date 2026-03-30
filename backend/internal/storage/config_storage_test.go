@@ -480,12 +480,12 @@ func TestProfileTimestamps(t *testing.T) {
 	}
 
 	// Verify CreatedAt is preserved
-	if !updatedProfile.CreatedAt.Equal(originalCreatedAt) {
+	if !updatedProfile.CreatedAt.Equal(*originalCreatedAt) {
 		t.Error("CreatedAt should be preserved on update")
 	}
 
 	// Verify UpdatedAt changed
-	if updatedProfile.UpdatedAt.Equal(originalCreatedAt) {
+	if updatedProfile.UpdatedAt.Equal(*originalCreatedAt) {
 		t.Error("UpdatedAt should change on update")
 	}
 }

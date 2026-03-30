@@ -22,7 +22,12 @@ func NewConfigStorage() (*ConfigStorage, error) {
 	// Get config directory
 	configDir := filepath.Join(userdir.GetConfigHome(), "MyGUI")
 	dbPath := filepath.Join(configDir, "config.db")
+	return NewConfigStorageWithPath(dbPath)
+}
 
+// NewConfigStorageWithPath creates a ConfigStorage at the given database path.
+// Useful for testing with temporary databases.
+func NewConfigStorageWithPath(dbPath string) (*ConfigStorage, error) {
 	// Open SQLite database
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -104,7 +109,11 @@ func (cs *ConfigStorage) initSchema() error {
 	`
 
 	_, err := cs.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return cs.initMongoSchema()
 }
 
 // SaveProfile saves or updates a connection profile

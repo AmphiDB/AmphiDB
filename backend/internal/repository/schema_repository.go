@@ -14,10 +14,13 @@ type Database struct {
 
 // Table represents a table in a database
 type Table struct {
-	Name    string `json:"name"`
-	Rows    int64  `json:"rows"`
-	Engine  string `json:"engine"`
-	Comment string `json:"comment"`
+	Name        string `json:"name"`
+	Rows        int64  `json:"rows"`
+	Engine      string `json:"engine"`
+	Comment     string `json:"comment"`
+	Collation   string `json:"collation"`
+	DataLength  int64  `json:"dataLength"`
+	IndexLength int64  `json:"indexLength"`
 }
 
 // Column represents a column in a table
@@ -145,7 +148,7 @@ func (r *SchemaRepository) ListDatabases() ([]Database, error) {
 	return databases, nil
 }
 
-// ListTables returns all tables in a database
+// ListTables returns all tables in a database using SHOW TABLE STATUS (faster than INFORMATION_SCHEMA)
 func (r *SchemaRepository) ListTables(database string) ([]Table, error) {
 	// Check cache first
 	r.cacheMutex.RLock()
@@ -156,24 +159,99 @@ func (r *SchemaRepository) ListTables(database string) ([]Table, error) {
 	}
 	r.cacheMutex.RUnlock()
 
-	query := `
-		SELECT TABLE_NAME, IFNULL(TABLE_ROWS, 0), IFNULL(ENGINE, ''), IFNULL(TABLE_COMMENT, '')
-		FROM INFORMATION_SCHEMA.TABLES
-		WHERE TABLE_SCHEMA = ?
-		ORDER BY TABLE_NAME
-	`
+	// SHOW TABLE STATUS is significantly faster than querying INFORMATION_SCHEMA.TABLES
+	query := fmt.Sprintf("SHOW TABLE STATUS FROM `%s`", database)
 
-	rows, err := r.db.Query(query, database)
+	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
+	// Get column names dynamically since SHOW TABLE STATUS columns can vary
+	colNames, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	// Build column index map
+	colIndex := make(map[string]int)
+	for i, name := range colNames {
+		colIndex[name] = i
+	}
+
 	var tables []Table
 	for rows.Next() {
-		var table Table
-		if err := rows.Scan(&table.Name, &table.Rows, &table.Engine, &table.Comment); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %w", err)
+		// Scan all columns into interface slice
+		vals := make([]interface{}, len(colNames))
+		valPtrs := make([]interface{}, len(colNames))
+		for i := range vals {
+			valPtrs[i] = &vals[i]
+		}
+		if err := rows.Scan(valPtrs...); err != nil {
+			return nil, fmt.Errorf("failed to scan table row: %w", err)
+		}
+
+		table := Table{}
+
+		if i, ok := colIndex["Name"]; ok {
+			if v, ok := vals[i].([]byte); ok {
+				table.Name = string(v)
+			} else if v, ok := vals[i].(string); ok {
+				table.Name = v
+			}
+		}
+		if i, ok := colIndex["Engine"]; ok {
+			if v, ok := vals[i].([]byte); ok {
+				table.Engine = string(v)
+			} else if v, ok := vals[i].(string); ok {
+				table.Engine = v
+			}
+		}
+		if i, ok := colIndex["Rows"]; ok {
+			switch v := vals[i].(type) {
+			case int64:
+				table.Rows = v
+			case uint64:
+				table.Rows = int64(v)
+			case []byte:
+				fmt.Sscanf(string(v), "%d", &table.Rows)
+			}
+		}
+		if i, ok := colIndex["Data_length"]; ok {
+			switch v := vals[i].(type) {
+			case int64:
+				table.DataLength = v
+			case uint64:
+				table.DataLength = int64(v)
+			}
+		}
+		if i, ok := colIndex["Index_length"]; ok {
+			switch v := vals[i].(type) {
+			case int64:
+				table.IndexLength = v
+			case uint64:
+				table.IndexLength = int64(v)
+			}
+		}
+		if i, ok := colIndex["Collation"]; ok {
+			if v, ok := vals[i].([]byte); ok {
+				table.Collation = string(v)
+			} else if v, ok := vals[i].(string); ok {
+				table.Collation = v
+			}
+		}
+		if i, ok := colIndex["Comment"]; ok {
+			if v, ok := vals[i].([]byte); ok {
+				table.Comment = string(v)
+			} else if v, ok := vals[i].(string); ok {
+				table.Comment = v
+			}
+		}
+
+		// Skip views (Engine is NULL for views)
+		if table.Name == "" {
+			continue
 		}
 		tables = append(tables, table)
 	}

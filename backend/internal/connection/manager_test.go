@@ -2,28 +2,25 @@ package connection
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"mygui/backend/internal/security"
 	"mygui/backend/internal/storage"
 	"mygui/backend/types"
-
-	"github.com/vrischmann/userdir"
 )
 
 // setupTestManager creates a test ConnectionManager with temporary storage
 func setupTestManager(t *testing.T) (*ConnectionManager, *storage.ConfigStorage, func()) {
-	// Ensure config directory exists
-	configDir := filepath.Join(userdir.GetConfigHome(), "MyGUI")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("Failed to create config directory: %v", err)
+	// Use a temp file for isolated test database
+	tmpFile, err := os.CreateTemp("", "test-config-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp db file: %v", err)
 	}
+	tmpFile.Close()
+	dbPath := tmpFile.Name()
 
-	// Use the real ConfigStorage which will create database in user's config directory
-	// We'll clean up the test profiles after
-	configStorage, err := storage.NewConfigStorage()
+	configStorage, err := storage.NewConfigStorageWithPath(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create config storage: %v", err)
 	}
@@ -31,15 +28,11 @@ func setupTestManager(t *testing.T) (*ConnectionManager, *storage.ConfigStorage,
 	encryptor := security.NewEncryptor("test-passphrase-for-testing")
 	manager := NewConnectionManager(configStorage, encryptor)
 
-	// Cleanup function - delete all test profiles
+	// Cleanup function
 	cleanup := func() {
-		// List and delete all profiles created during test
-		profiles, _ := configStorage.ListProfiles()
-		for _, profile := range profiles {
-			configStorage.DeleteProfile(profile.ID)
-		}
 		manager.DisconnectAll()
 		configStorage.Close()
+		os.Remove(dbPath)
 	}
 
 	return manager, configStorage, cleanup
@@ -418,13 +411,13 @@ func TestUpdateProfilePreservesCreatedAt(t *testing.T) {
 		t.Fatalf("Failed to list profiles: %v", err)
 	}
 
-	if !profiles[0].CreatedAt.Equal(originalCreatedAt) {
+	if !profiles[0].CreatedAt.Equal(*originalCreatedAt) {
 		t.Errorf("CreatedAt should be preserved. Original: %v, Current: %v",
 			originalCreatedAt, profiles[0].CreatedAt)
 	}
 
 	// Verify UpdatedAt changed
-	if profiles[0].UpdatedAt.Equal(originalCreatedAt) {
+	if profiles[0].UpdatedAt.Equal(*originalCreatedAt) {
 		t.Error("UpdatedAt should be different from CreatedAt after update")
 	}
 }

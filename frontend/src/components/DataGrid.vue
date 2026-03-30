@@ -42,7 +42,10 @@
         :prop="column"
         :label="column"
         :sortable="sortable ? 'custom' : false"
-        min-width="120"
+        min-width="80"
+        max-width="140"
+        width="140"
+        show-overflow-tooltip
       >
         <template #default="{ row, $index }">
           <div
@@ -81,6 +84,32 @@
       </el-table-column>
     </el-table>
 
+    <!-- JSON 查看/编辑对话框 -->
+    <el-dialog
+      v-model="jsonDialogVisible"
+      title="JSON 字段"
+      width="700px"
+      :close-on-click-modal="false"
+    >
+      <div class="json-dialog-toolbar">
+        <el-button size="small" @click="copyJsonContent">复制</el-button>
+        <el-button
+          v-if="props.editable"
+          size="small"
+          type="primary"
+          @click="confirmJsonEdit"
+        >保存</el-button>
+      </div>
+      <el-input
+        v-model="jsonEditContent"
+        type="textarea"
+        :rows="18"
+        :readonly="!props.editable"
+        class="json-textarea"
+        spellcheck="false"
+      />
+    </el-dialog>
+
     <!-- 分页 -->
     <div class="pagination-container" v-if="showPagination">
       <el-pagination
@@ -98,7 +127,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, h } from 'vue';
-import { ElCheckbox } from 'element-plus';
+import { ElCheckbox, ElMessage } from 'element-plus';
 import CellEditor from './CellEditor.vue';
 import type { OrderBy, Column, ForeignKey } from '../types/api';
 
@@ -154,18 +183,15 @@ const editingCell = ref<{ row: number; column: string }>({ row: -1, column: '' }
 const editingValue = ref<any>(null);
 const cellInput = ref<any>(null);
 
+// JSON 对话框状态
+const jsonDialogVisible = ref(false);
+const jsonEditContent = ref('');
+const jsonEditCell = ref<{ row: number; column: string }>({ row: -1, column: '' });
+
 // 是否使用虚拟滚动（基于数据量）
 const useVirtualScroll = computed(() => {
   return props.data.length > props.virtualScrollThreshold;
 });
-
-// 调试：输出 props
-console.log('=== DataGrid Props ===');
-console.log('editable:', props.editable);
-console.log('columns:', props.columns);
-console.log('columnSchemas keys:', Object.keys(props.columnSchemas || {}));
-console.log('data rows:', props.data?.length);
-console.log('useVirtualScroll:', useVirtualScroll.value);
 
 // 将二维数组转换为对象数组以供 el-table 使用
 const displayData = computed(() => {
@@ -277,25 +303,39 @@ const handleSortChange = ({ column, prop, order }: any) => {
   emit('sortChange', [orderBy]);
 };
 
+// 检测值是否为 JSON
+const isJsonValue = (value: any): boolean => {
+  if (value === null || value === undefined) return false;
+  const str = typeof value === 'string' ? value.trim() : JSON.stringify(value);
+  if (typeof value === 'object') return true;
+  return (str.startsWith('{') && str.endsWith('}')) || (str.startsWith('[') && str.endsWith(']'));
+};
+
+// 格式化 JSON 字符串
+const formatJson = (value: any): string => {
+  try {
+    const obj = typeof value === 'string' ? JSON.parse(value) : value;
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+};
+
 // 处理单元格双击（备用方法 - 直接在 cell-content 上监听）
 const handleCellContentDoubleClick = (rowIndex: number, columnName: string, value: any) => {
-  console.log('=== Cell Content Double-Click ===');
-  console.log('Editable:', props.editable);
-  console.log('Row index:', rowIndex);
-  console.log('Column:', columnName);
-  console.log('Value:', value);
-  
-  if (!props.editable) {
-    console.log('❌ Editing disabled');
+  if (!props.editable) return;
+
+  // JSON 字段弹出格式化对话框
+  if (isJsonValue(value)) {
+    jsonEditCell.value = { row: rowIndex, column: columnName };
+    jsonEditContent.value = formatJson(value);
+    jsonDialogVisible.value = true;
     return;
   }
-  
+
   editingCell.value = { row: rowIndex, column: columnName };
   editingValue.value = value;
-  
-  console.log('✅ Started editing:', editingCell.value);
-  
-  // 聚焦输入框
+
   nextTick(() => {
     if (cellInput.value) {
       if (Array.isArray(cellInput.value)) {
@@ -303,54 +343,57 @@ const handleCellContentDoubleClick = (rowIndex: number, columnName: string, valu
       } else {
         cellInput.value.focus();
       }
-      console.log('✅ Input focused');
     }
   });
 };
 
+// 复制 JSON 内容
+const copyJsonContent = async () => {
+  try {
+    await navigator.clipboard.writeText(jsonEditContent.value);
+    ElMessage.success('已复制到剪贴板');
+  } catch {
+    ElMessage.error('复制失败');
+  }
+};
+
+// 确认 JSON 编辑
+const confirmJsonEdit = () => {
+  const { row, column } = jsonEditCell.value;
+  if (row < 0 || !column) return;
+  try {
+    // 验证 JSON 格式
+    JSON.parse(jsonEditContent.value);
+    const oldValue = displayData.value[row][column];
+    emit('cellEdit', row, column, oldValue, jsonEditContent.value);
+    jsonDialogVisible.value = false;
+  } catch {
+    ElMessage.error('JSON 格式不正确，请检查后重试');
+  }
+};
+
 // 处理单元格双击
 const handleCellDoubleClick = (row: any, column: any, cell: any, event: any) => {
-  console.log('=== Cell Double-Click Event ===');
-  console.log('1. Editable prop:', props.editable);
-  console.log('2. Row data:', row);
-  console.log('3. Column object:', column);
-  console.log('4. Column property:', column?.property);
-  console.log('5. Available columnSchemas:', Object.keys(props.columnSchemas || {}));
-  console.log('6. Display data length:', displayData.value.length);
-  
-  if (!props.editable) {
-    console.log('❌ Editing disabled - editable prop is false');
-    return;
-  }
-  
+  if (!props.editable) return;
+
   const rowIndex = displayData.value.indexOf(row);
   const columnName = column.property;
-  
-  console.log('7. Calculated row index:', rowIndex);
-  console.log('8. Column name:', columnName);
-  
+
   if (rowIndex >= 0 && columnName) {
+    const value = row[columnName];
+    if (isJsonValue(value)) {
+      jsonEditCell.value = { row: rowIndex, column: columnName };
+      jsonEditContent.value = formatJson(value);
+      jsonDialogVisible.value = true;
+      return;
+    }
     editingCell.value = { row: rowIndex, column: columnName };
-    editingValue.value = row[columnName];
-    
-    console.log('✅ Editing cell:', editingCell.value);
-    console.log('✅ Initial value:', editingValue.value);
-    
-    // 聚焦输入框
+    editingValue.value = value;
     nextTick(() => {
       if (cellInput.value) {
-        if (Array.isArray(cellInput.value)) {
-          cellInput.value[0]?.focus();
-        } else {
-          cellInput.value.focus();
-        }
-        console.log('✅ Input focused');
-      } else {
-        console.log('⚠️ cellInput ref not found');
+        Array.isArray(cellInput.value) ? cellInput.value[0]?.focus() : cellInput.value.focus();
       }
     });
-  } else {
-    console.log('❌ Invalid row or column - rowIndex:', rowIndex, 'columnName:', columnName);
   }
 };
 
@@ -444,14 +487,30 @@ defineExpose({
 }
 
 .cell-content {
-  padding: 4px;
-  min-height: 20px;
+  padding: 0 8px;
+  height: 40px;
+  line-height: 40px;
   cursor: pointer;
   user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cell-content:hover {
   background-color: #f5f7fa;
+}
+
+.json-dialog-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.json-textarea :deep(textarea) {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .cell-editor-wrapper {
@@ -465,7 +524,15 @@ defineExpose({
 }
 
 :deep(.el-table__cell) {
-  padding: 8px 0;
+  padding: 0 !important;
+  height: 40px;
+  max-height: 40px;
+  overflow: hidden;
+}
+
+:deep(.el-table__row) {
+  height: 40px;
+  max-height: 40px;
 }
 
 /* 虚拟表格样式优化 */

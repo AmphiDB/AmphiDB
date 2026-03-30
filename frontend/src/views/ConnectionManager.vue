@@ -1,7 +1,7 @@
 <template>
-  <ConnectionManager />
+  <UnifiedConnectionManager />
 </template>
 
 <script setup lang="ts">
-import ConnectionManager from '../components/ConnectionManager.vue';
+import UnifiedConnectionManager from '../components/UnifiedConnectionManager.vue'
 </script>

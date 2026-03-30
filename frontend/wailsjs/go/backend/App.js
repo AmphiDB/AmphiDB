@@ -150,6 +150,94 @@ export function ListTables(arg1, arg2) {
   return window['go']['backend']['App']['ListTables'](arg1, arg2);
 }
 
+export function MongoAnalyzeSchema(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['MongoAnalyzeSchema'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoConnect(arg1) {
+  return window['go']['backend']['App']['MongoConnect'](arg1);
+}
+
+export function MongoCreateCollection(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['MongoCreateCollection'](arg1, arg2, arg3);
+}
+
+export function MongoCreateIndex(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['MongoCreateIndex'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoCreateProfile(arg1) {
+  return window['go']['backend']['App']['MongoCreateProfile'](arg1);
+}
+
+export function MongoDeleteDocuments(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['MongoDeleteDocuments'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoDeleteProfile(arg1) {
+  return window['go']['backend']['App']['MongoDeleteProfile'](arg1);
+}
+
+export function MongoDisconnect(arg1) {
+  return window['go']['backend']['App']['MongoDisconnect'](arg1);
+}
+
+export function MongoDropCollection(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['MongoDropCollection'](arg1, arg2, arg3);
+}
+
+export function MongoDropIndex(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['MongoDropIndex'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoExportDocuments(arg1, arg2) {
+  return window['go']['backend']['App']['MongoExportDocuments'](arg1, arg2);
+}
+
+export function MongoGetConnectionStatus(arg1) {
+  return window['go']['backend']['App']['MongoGetConnectionStatus'](arg1);
+}
+
+export function MongoInsertDocument(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['MongoInsertDocument'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoListCollections(arg1, arg2) {
+  return window['go']['backend']['App']['MongoListCollections'](arg1, arg2);
+}
+
+export function MongoListDatabases(arg1) {
+  return window['go']['backend']['App']['MongoListDatabases'](arg1);
+}
+
+export function MongoListIndexes(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['MongoListIndexes'](arg1, arg2, arg3);
+}
+
+export function MongoListProfiles() {
+  return window['go']['backend']['App']['MongoListProfiles']();
+}
+
+export function MongoQueryDocuments(arg1, arg2) {
+  return window['go']['backend']['App']['MongoQueryDocuments'](arg1, arg2);
+}
+
+export function MongoRunAggregation(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['MongoRunAggregation'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoTestConnection(arg1) {
+  return window['go']['backend']['App']['MongoTestConnection'](arg1);
+}
+
+export function MongoUpdateDocument(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['backend']['App']['MongoUpdateDocument'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function MongoUpdateProfile(arg1, arg2) {
+  return window['go']['backend']['App']['MongoUpdateProfile'](arg1, arg2);
+}
+
 export function OpenDirectoryDialog(arg1) {
   return window['go']['backend']['App']['OpenDirectoryDialog'](arg1);
 }

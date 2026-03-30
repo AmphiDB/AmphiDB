@@ -2,10 +2,10 @@
   <div class="database-explorer">
     <div class="explorer-header">
       <h3>数据库浏览器</h3>
-      <el-button 
-        :icon="Refresh" 
-        circle 
-        size="small" 
+      <el-button
+        :icon="Refresh"
+        circle
+        size="small"
         @click="refreshDatabases"
         :loading="loading"
         title="刷新"
@@ -13,43 +13,72 @@
     </div>
 
     <div class="explorer-content">
-      <el-tree
-        v-if="treeData.length > 0"
-        :data="treeData"
-        :props="treeProps"
-        node-key="id"
-        :expand-on-click-node="false"
-        :lazy="true"
-        :load="loadNode"
-        @node-click="handleNodeClick"
-        @node-contextmenu="handleContextMenu"
-        :default-expanded-keys="expandedKeys"
-      >
-        <template #default="{ node, data }">
-          <span class="tree-node">
-            <el-icon class="node-icon">
-              <component :is="getNodeIcon(data.type)" />
+      <el-empty v-if="!loading && !connectionStore.isConnected" description="请先连接到数据库" />
+      <el-empty v-else-if="!loading && databases.length === 0" description="未找到数据库" />
+
+      <div v-else class="db-list">
+        <div v-for="db in databases" :key="db.name" class="db-item">
+          <!-- 数据库行 -->
+          <div
+            class="db-row"
+            :class="{ 'is-active': currentDatabase === db.name }"
+            @click="handleDbClick(db.name)"
+            @contextmenu.prevent="handleContextMenu($event, { type: 'database', database: db.name })"
+          >
+            <el-icon class="arrow-icon" :class="{ expanded: expandedDbs.has(db.name) }">
+              <ArrowRight />
             </el-icon>
-            <span class="node-label">{{ node.label }}</span>
-            <span v-if="data.type === 'table' && data.rows !== undefined" class="node-meta">
-              ({{ formatRowCount(data.rows) }} 行)
-            </span>
-            <span v-if="data.type === 'database' && data.loading" class="node-loading">
-              <el-icon class="is-loading"><Loading /></el-icon>
-            </span>
-          </span>
-        </template>
-      </el-tree>
+            <el-icon class="node-icon"><Coin /></el-icon>
+            <span class="node-label">{{ db.name }}</span>
+            <el-icon v-if="loadingDbs.has(db.name)" class="loading-icon is-loading"><Loading /></el-icon>
+          </div>
 
-      <el-empty 
-        v-else-if="!loading && !connectionStore.isConnected"
-        description="请先连接到数据库"
-      />
+          <!-- 展开内容：筛选框 + 表列表 -->
+          <div v-if="expandedDbs.has(db.name)" class="db-children">
+            <!-- 筛选框 -->
+            <div class="table-filter" @click.stop>
+              <el-input
+                v-model="dbFilterMap[db.name]"
+                placeholder="筛选表名..."
+                clearable
+                size="small"
+                :prefix-icon="Search"
+              />
+            </div>
 
-      <el-empty 
-        v-else-if="!loading"
-        description="未找到数据库"
-      />
+            <!-- 表节点 -->
+            <div
+              v-for="table in getFilteredTables(db.name)"
+              :key="table.name"
+              class="table-row"
+              :class="{ 'is-active': currentDatabase === db.name && currentTable === table.name }"
+              @click="handleTableClick(db.name, table.name)"
+              @dblclick="handleTableDblClick(db.name, table.name)"
+              @contextmenu.prevent="handleContextMenu($event, { type: 'table', database: db.name, table: table.name })"
+            >
+              <el-icon class="node-icon table-icon"><Document /></el-icon>
+              <span class="node-label">{{ table.name }}</span>
+              <span v-if="table.rows !== undefined" class="node-meta">({{ formatRowCount(table.rows) }})</span>
+            </div>
+
+            <!-- 无匹配提示 -->
+            <div
+              v-if="dbFilterMap[db.name] && getFilteredTables(db.name).length === 0 && !loadingDbs.has(db.name)"
+              class="no-match"
+            >
+              无匹配表
+            </div>
+
+            <!-- 空表提示 -->
+            <div
+              v-if="!loadingDbs.has(db.name) && getTablesForDb(db.name).length === 0 && !dbFilterMap[db.name]"
+              class="no-match"
+            >
+              暂无数据表
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 右键菜单 -->
@@ -65,7 +94,7 @@
             <el-icon><Plus /></el-icon>
             <span>新建表</span>
           </div>
-          <div class="context-menu-divider"></div>
+          <div class="context-menu-divider" />
           <div class="context-menu-item" @click="handleMenuCommand('refresh-tables')">
             <el-icon><Refresh /></el-icon>
             <span>刷新表列表</span>
@@ -84,7 +113,7 @@
             <el-icon><Edit /></el-icon>
             <span>修改表结构</span>
           </div>
-          <div class="context-menu-divider"></div>
+          <div class="context-menu-divider" />
           <div class="context-menu-item danger" @click="handleMenuCommand('drop-table')">
             <el-icon><Delete /></el-icon>
             <span>删除表</span>
@@ -96,268 +125,176 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { 
-  Refresh, 
-  Coin as DatabaseIcon, 
-  Document, 
+import {
+  Refresh,
+  Coin,
+  Document,
   Grid,
   Delete,
-  Folder,
   Edit,
   Loading,
-  Plus
+  Plus,
+  Search,
+  ArrowRight,
 } from '@element-plus/icons-vue';
 import { useConnectionStore } from '../stores/connection';
 import { useDatabaseStore } from '../stores/database';
 import { DatabaseAPI, SchemaAPI } from '../api';
 import type { Database, Table } from '../types/api';
 
-// Emits
 const emit = defineEmits<{
   viewSchema: [];
   viewData: [];
   editSchema: [];
 }>();
 
-// Stores
 const connectionStore = useConnectionStore();
 const databaseStore = useDatabaseStore();
 
-// State
 const loading = ref(false);
-const treeData = ref<any[]>([]);
-const expandedKeys = ref<string[]>([]);
+const databases = ref<Database[]>([]);
+// 已展开的数据库名集合
+const expandedDbs = reactive(new Set<string>());
+// 正在加载中的数据库
+const loadingDbs = reactive(new Set<string>());
+// 每个数据库的表列表
+const dbTablesMap = reactive<Record<string, Table[]>>({});
+// 每个数据库的筛选文本
+const dbFilterMap = reactive<Record<string, string>>({});
+
 const contextMenuVisible = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
 const contextMenuData = ref<any>(null);
-const lastClickTime = ref(0);
-const lastClickNode = ref<any>(null);
 
-// Cache for table lists - expires after 5 minutes
-const tableCache = new Map<string, { data: Table[], timestamp: number }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// 缓存
+const tableCache = new Map<string, { data: Table[]; timestamp: number }>();
+const CACHE_DURATION = 5 * 60 * 1000;
 
-// Tree props
-const treeProps = {
-  children: 'children',
-  label: 'label',
-  isLeaf: 'isLeaf'
-};
+const currentDatabase = computed(() => databaseStore.currentDatabase);
+const currentTable = computed(() => databaseStore.currentTable);
 
-// 格式化行数显示
+const isCacheValid = (ts: number) => Date.now() - ts < CACHE_DURATION;
+
 const formatRowCount = (count: number): string => {
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}M`;
-  } else if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}K`;
-  }
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
   return count.toString();
 };
 
-// 获取节点图标
-const getNodeIcon = (type: string) => {
-  switch (type) {
-    case 'database':
-      return DatabaseIcon;
-    case 'table':
-      return Document;
-    default:
-      return Folder;
-  }
-};
+const getTablesForDb = (dbName: string): Table[] => dbTablesMap[dbName] || [];
 
-// 清除缓存
-const clearCache = () => {
-  tableCache.clear();
-};
-
-// 检查缓存是否有效
-const isCacheValid = (timestamp: number): boolean => {
-  return Date.now() - timestamp < CACHE_DURATION;
+const getFilteredTables = (dbName: string): Table[] => {
+  const tables = getTablesForDb(dbName);
+  const filter = (dbFilterMap[dbName] || '').toLowerCase();
+  if (!filter) return tables;
+  return tables.filter(t => t.name.toLowerCase().includes(filter));
 };
 
 // 加载数据库列表
 const loadDatabases = async () => {
   if (!connectionStore.currentConnection) {
-    treeData.value = [];
+    databases.value = [];
     return;
   }
-
   loading.value = true;
   try {
-    const databases = await DatabaseAPI.listDatabases(connectionStore.currentConnection.id);
-    databaseStore.setDatabases(databases);
-    
-    // 构建树形数据 - 使用懒加载，不预加载表列表
-    treeData.value = databases.map((db: Database) => ({
-      id: `db-${db.name}`,
-      label: db.name,
-      type: 'database',
-      database: db.name,
-      isLeaf: false,
-      loading: false
-    }));
+    const result = await DatabaseAPI.listDatabases(connectionStore.currentConnection.id);
+    databases.value = result || [];
+    databaseStore.setDatabases(result || []);
   } catch (error: any) {
     ElMessage.error(error.message || '加载数据库列表失败');
-    console.error('Failed to load databases:', error);
   } finally {
     loading.value = false;
   }
 };
 
-// 懒加载节点 - Element Plus Tree 的 lazy load 回调
-const loadNode = async (node: any, resolve: (data: any[]) => void) => {
-  // 只处理数据库节点的懒加载
-  if (node.level === 0) {
-    // 根节点，返回数据库列表
-    resolve(treeData.value);
+// 加载某个数据库的表列表
+const loadTables = async (dbName: string) => {
+  if (!connectionStore.currentConnection) return;
+
+  const cached = tableCache.get(dbName);
+  if (cached && isCacheValid(cached.timestamp)) {
+    dbTablesMap[dbName] = cached.data;
     return;
   }
-  
-  if (node.data.type === 'database') {
-    // 数据库节点，加载表列表
-    const dbName = node.data.database;
-    
-    // 检查缓存
-    const cached = tableCache.get(dbName);
-    if (cached && isCacheValid(cached.timestamp)) {
-      const tableNodes = cached.data.map((table: Table) => ({
-        id: `table-${dbName}-${table.name}`,
-        label: table.name,
-        type: 'table',
-        database: dbName,
-        table: table.name,
-        rows: table.rows,
-        engine: table.engine,
-        comment: table.comment,
-        isLeaf: true
-      }));
-      resolve(tableNodes);
-      return;
-    }
-    
-    // 从服务器加载
-    node.data.loading = true;
-    try {
-      if (!connectionStore.currentConnection) {
-        resolve([]);
-        return;
-      }
 
-      const tables = await DatabaseAPI.listTables(
-        connectionStore.currentConnection.id,
-        dbName
-      );
-      
-      // 更新缓存
-      tableCache.set(dbName, {
-        data: tables,
-        timestamp: Date.now()
-      });
-      
-      const tableNodes = tables.map((table: Table) => ({
-        id: `table-${dbName}-${table.name}`,
-        label: table.name,
-        type: 'table',
-        database: dbName,
-        table: table.name,
-        rows: table.rows,
-        engine: table.engine,
-        comment: table.comment,
-        isLeaf: true
-      }));
-      
-      // 如果这是当前数据库，更新 store
-      if (dbName === databaseStore.currentDatabase) {
-        databaseStore.setTables(tables);
-      }
-      
-      resolve(tableNodes);
-    } catch (error: any) {
-      ElMessage.error(error.message || '加载表列表失败');
-      console.error('Failed to load tables:', error);
-      resolve([]);
-    } finally {
-      node.data.loading = false;
+  loadingDbs.add(dbName);
+  try {
+    const tables = await DatabaseAPI.listTables(connectionStore.currentConnection.id, dbName);
+    tableCache.set(dbName, { data: tables, timestamp: Date.now() });
+    dbTablesMap[dbName] = tables;
+    if (dbName === databaseStore.currentDatabase) {
+      databaseStore.setTables(tables);
     }
+  } catch (error: any) {
+    ElMessage.error(error.message || '加载表列表失败');
+  } finally {
+    loadingDbs.delete(dbName);
+  }
+};
+
+// 点击数据库行：切换展开/折叠
+const handleDbClick = async (dbName: string) => {
+  databaseStore.setCurrentDatabase(dbName);
+  databaseStore.setCurrentTable(null);
+
+  if (expandedDbs.has(dbName)) {
+    expandedDbs.delete(dbName);
   } else {
-    // 表节点是叶子节点
-    resolve([]);
+    expandedDbs.add(dbName);
+    await loadTables(dbName);
   }
 };
 
-// 处理节点点击
-const handleNodeClick = async (data: any, node: any) => {
-  const now = Date.now();
-  const isDoubleClick = lastClickNode.value === data.id && (now - lastClickTime.value) < 300;
-  
-  lastClickTime.value = now;
-  lastClickNode.value = data.id;
-  
-  if (data.type === 'database') {
-    // 点击数据库节点 - 自动展开
-    databaseStore.setCurrentDatabase(data.database);
-    databaseStore.setCurrentTable(null);
-    
-    // 自动展开数据库节点
-    if (!node.expanded) {
-      node.expanded = true;
-    }
-  } else if (data.type === 'table') {
-    // 单击表节点 - 只选中，不打开
-    databaseStore.setCurrentDatabase(data.database);
-    databaseStore.setCurrentTable(data.table);
-    
-    // 双击表节点 - 打开表数据
-    if (isDoubleClick) {
-      emit('viewData');
-    }
-  }
+// 单击表
+const handleTableClick = (dbName: string, tableName: string) => {
+  databaseStore.setCurrentDatabase(dbName);
+  databaseStore.setCurrentTable(tableName);
 };
 
-// 处理右键菜单
+// 双击表 - 打开数据
+const handleTableDblClick = (dbName: string, tableName: string) => {
+  databaseStore.setCurrentDatabase(dbName);
+  databaseStore.setCurrentTable(tableName);
+  emit('viewData');
+};
+
+// 右键菜单
 const handleContextMenu = (event: MouseEvent, data: any) => {
-  event.preventDefault();
   contextMenuData.value = data;
   contextMenuPosition.value = { x: event.clientX, y: event.clientY };
   contextMenuVisible.value = true;
-  
-  // 点击其他地方关闭菜单
-  const closeMenu = () => {
+  const close = () => {
     contextMenuVisible.value = false;
-    document.removeEventListener('click', closeMenu);
+    document.removeEventListener('click', close);
   };
-  setTimeout(() => {
-    document.addEventListener('click', closeMenu);
-  }, 100);
+  setTimeout(() => document.addEventListener('click', close), 100);
 };
 
-// 处理菜单点击
-const handleMenuClick = (event: Event) => {
-  event.stopPropagation();
-};
+const handleMenuClick = (e: Event) => e.stopPropagation();
 
-// 处理菜单命令
 const handleMenuCommand = async (command: string) => {
-  if (!contextMenuData.value) return;
-
   const data = contextMenuData.value;
   contextMenuVisible.value = false;
+  contextMenuData.value = null;
+  if (!data) return;
 
   switch (command) {
     case 'create-table':
-      // 新建表
       databaseStore.setCurrentDatabase(data.database);
       databaseStore.setCurrentTable(null);
-      emit('editSchema'); // 触发编辑模式，但不传表名，表示新建
+      emit('editSchema');
       break;
 
     case 'refresh-tables':
-      // 清除该数据库的缓存
       tableCache.delete(data.database);
-      ElMessage.success('表列表已刷新，请重新展开数据库节点');
+      dbFilterMap[data.database] = '';
+      if (expandedDbs.has(data.database)) {
+        await loadTables(data.database);
+      }
+      ElMessage.success('表列表已刷新');
       break;
 
     case 'view-schema':
@@ -382,82 +319,55 @@ const handleMenuCommand = async (command: string) => {
       await handleDropTable(data);
       break;
   }
-
-  contextMenuData.value = null;
 };
 
-// 删除表
 const handleDropTable = async (data: any) => {
   if (!connectionStore.currentConnection) return;
-
   try {
     await ElMessageBox.confirm(
       `确定要删除表 "${data.database}.${data.table}" 吗？此操作不可恢复！`,
       '删除表',
-      {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-        confirmButtonClass: 'el-button--danger'
-      }
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
     );
-
-    await SchemaAPI.dropTable(
-      connectionStore.currentConnection.id,
-      data.database,
-      data.table
-    );
-
+    await SchemaAPI.dropTable(connectionStore.currentConnection.id, data.database, data.table);
     ElMessage.success('表已删除');
-
-    // 清除缓存，强制重新加载
     tableCache.delete(data.database);
-
-    // 如果删除的是当前选中的表，清除选中状态
+    await loadTables(data.database);
     if (databaseStore.currentTable === data.table) {
       databaseStore.setCurrentTable(null);
     }
   } catch (error: any) {
-    if (error !== 'cancel') {
-      ElMessage.error(error.message || '删除表失败');
-      console.error('Failed to drop table:', error);
-    }
+    if (error !== 'cancel') ElMessage.error(error.message || '删除表失败');
   }
 };
 
-// 刷新数据库列表
 const refreshDatabases = async () => {
-  clearCache();
+  tableCache.clear();
+  expandedDbs.clear();
   await loadDatabases();
   ElMessage.success('数据库列表已刷新');
 };
 
-// 监听连接状态变化
 watch(
   () => connectionStore.currentConnection,
-  async (newConnection) => {
-    clearCache();
-    if (newConnection) {
+  async (conn) => {
+    tableCache.clear();
+    expandedDbs.clear();
+    if (conn) {
       await loadDatabases();
     } else {
-      treeData.value = [];
+      databases.value = [];
       databaseStore.setCurrentDatabase(null);
       databaseStore.setCurrentTable(null);
     }
   }
 );
 
-// 组件挂载时加载数据
 onMounted(async () => {
-  if (connectionStore.currentConnection) {
-    await loadDatabases();
-  }
+  if (connectionStore.currentConnection) await loadDatabases();
 });
 
-// 组件卸载时清理缓存
-onUnmounted(() => {
-  clearCache();
-});
+onUnmounted(() => tableCache.clear());
 </script>
 
 <style scoped>
@@ -466,7 +376,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -474,13 +383,14 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid #e4e7ed;
+  flex-shrink: 0;
 }
 
 .explorer-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   color: #303133;
 }
@@ -488,68 +398,121 @@ onUnmounted(() => {
 .explorer-content {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px 0;
 }
 
-.tree-node {
+/* 数据库行 */
+.db-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
+  padding: 0 8px;
+  height: 32px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.db-row:hover {
+  background: #f5f7fa;
+}
+
+.db-row.is-active {
+  background: #ecf5ff;
+}
+
+.arrow-icon {
+  font-size: 12px;
+  color: #909399;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.arrow-icon.expanded {
+  transform: rotate(90deg);
 }
 
 .node-icon {
-  font-size: 16px;
+  font-size: 15px;
   color: #606266;
+  flex-shrink: 0;
 }
 
-.node-label {
+.loading-icon {
   font-size: 14px;
-  color: #303133;
-}
-
-.node-meta {
-  font-size: 12px;
-  color: #909399;
+  color: #409eff;
   margin-left: 4px;
 }
 
-.node-loading {
-  margin-left: 8px;
-  color: #409eff;
-  font-size: 14px;
+.node-label {
+  font-size: 13px;
+  color: #303133;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
-:deep(.el-tree-node__content) {
-  height: 32px;
-  padding: 0 8px;
+.node-meta {
+  font-size: 11px;
+  color: #c0c4cc;
+  flex-shrink: 0;
 }
 
-:deep(.el-tree-node__content:hover) {
-  background-color: #f5f7fa;
+/* 展开区域 */
+.db-children {
+  padding-left: 0;
 }
 
-:deep(.el-tree-node.is-current > .el-tree-node__content) {
-  background-color: #ecf5ff;
-  color: #409eff;
+/* 筛选框 */
+.table-filter {
+  padding: 4px 8px 4px 28px;
 }
 
-:deep(.el-tree-node.is-current > .el-tree-node__content .node-icon) {
-  color: #409eff;
+/* 表行 */
+.table-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 28px;
+  height: 28px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
 }
 
-:deep(.el-tree-node.is-current > .el-tree-node__content .node-label) {
+.table-row:hover {
+  background: #f5f7fa;
+}
+
+.table-row.is-active {
+  background: #ecf5ff;
+}
+
+.table-row.is-active .node-label {
   color: #409eff;
   font-weight: 500;
 }
 
-/* 右键菜单样式 */
+.table-icon {
+  font-size: 13px;
+  color: #909399;
+}
+
+.no-match {
+  padding: 6px 8px 6px 36px;
+  font-size: 12px;
+  color: #c0c4cc;
+}
+
+/* 右键菜单 */
 .context-menu {
   position: fixed;
   background: #fff;
   border: 1px solid #e4e7ed;
   border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   padding: 4px 0;
   min-width: 160px;
   z-index: 9999;
@@ -560,27 +523,22 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: 13px;
   color: #606266;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background 0.15s;
 }
 
 .context-menu-item:hover {
-  background-color: #f5f7fa;
+  background: #f5f7fa;
 }
 
-.context-menu-item.danger {
-  color: #f56c6c;
-}
-
-.context-menu-item.danger:hover {
-  background-color: #fef0f0;
-}
+.context-menu-item.danger { color: #f56c6c; }
+.context-menu-item.danger:hover { background: #fef0f0; }
 
 .context-menu-divider {
   height: 1px;
-  background-color: #e4e7ed;
+  background: #e4e7ed;
   margin: 4px 0;
 }
 </style>

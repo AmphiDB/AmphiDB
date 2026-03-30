@@ -82,6 +82,50 @@ export function ListProfiles():Promise<Array<types.ConnectionProfile>>;
 
 export function ListTables(arg1:string,arg2:string):Promise<Array<repository.Table>>;
 
+export function MongoAnalyzeSchema(arg1:string,arg2:string,arg3:string,arg4:number):Promise<types.MongoSchemaAnalysis>;
+
+export function MongoConnect(arg1:string):Promise<void>;
+
+export function MongoCreateCollection(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function MongoCreateIndex(arg1:string,arg2:string,arg3:string,arg4:types.MongoIndexSpec):Promise<string>;
+
+export function MongoCreateProfile(arg1:types.MongoConnectionProfile):Promise<void>;
+
+export function MongoDeleteDocuments(arg1:string,arg2:string,arg3:string,arg4:Array<string>):Promise<number>;
+
+export function MongoDeleteProfile(arg1:string):Promise<void>;
+
+export function MongoDisconnect(arg1:string):Promise<void>;
+
+export function MongoDropCollection(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function MongoDropIndex(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function MongoExportDocuments(arg1:string,arg2:types.MongoExportParams):Promise<void>;
+
+export function MongoGetConnectionStatus(arg1:string):Promise<string>;
+
+export function MongoInsertDocument(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function MongoListCollections(arg1:string,arg2:string):Promise<Array<types.MongoCollection>>;
+
+export function MongoListDatabases(arg1:string):Promise<Array<types.MongoDatabase>>;
+
+export function MongoListIndexes(arg1:string,arg2:string,arg3:string):Promise<Array<types.MongoIndex>>;
+
+export function MongoListProfiles():Promise<Array<types.MongoConnectionProfile>>;
+
+export function MongoQueryDocuments(arg1:string,arg2:types.MongoQueryParams):Promise<types.MongoDocumentResult>;
+
+export function MongoRunAggregation(arg1:string,arg2:string,arg3:string,arg4:string):Promise<types.MongoAggregationResult>;
+
+export function MongoTestConnection(arg1:types.MongoConnectionProfile):Promise<types.MongoTestResult>;
+
+export function MongoUpdateDocument(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
+
+export function MongoUpdateProfile(arg1:string,arg2:types.MongoConnectionProfile):Promise<void>;
+
 export function OpenDirectoryDialog(arg1:string):Promise<string>;
 
 export function OpenFileDialog(arg1:string,arg2:Array<backend.FileDialogFilter>):Promise<string>;

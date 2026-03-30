@@ -320,6 +320,9 @@ export namespace repository {
 	    rows: number;
 	    engine: string;
 	    comment: string;
+	    collation: string;
+	    dataLength: number;
+	    indexLength: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Table(source);
@@ -331,6 +334,9 @@ export namespace repository {
 	        this.rows = source["rows"];
 	        this.engine = source["engine"];
 	        this.comment = source["comment"];
+	        this.collation = source["collation"];
+	        this.dataLength = source["dataLength"];
+	        this.indexLength = source["indexLength"];
 	    }
 	}
 
@@ -651,6 +657,287 @@ export namespace types {
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.columns = source["columns"];
+	    }
+	}
+	export class MongoAggregationResult {
+	    documents: string[];
+	    executionTime: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoAggregationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.documents = source["documents"];
+	        this.executionTime = source["executionTime"];
+	        this.error = source["error"];
+	    }
+	}
+	export class MongoCollection {
+	    name: string;
+	    documentCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoCollection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.documentCount = source["documentCount"];
+	    }
+	}
+	export class MongoConnectionProfile {
+	    id: string;
+	    name: string;
+	    host: string;
+	    port: number;
+	    username: string;
+	    password: string;
+	    authDb: string;
+	    useUri: boolean;
+	    uri: string;
+	    sshEnabled: boolean;
+	    sshHost?: string;
+	    sshPort?: number;
+	    sshUsername?: string;
+	    sshPassword?: string;
+	    sshKeyPath?: string;
+	    timeout: number;
+	    // Go type: time
+	    createdAt?: any;
+	    // Go type: time
+	    updatedAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoConnectionProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.authDb = source["authDb"];
+	        this.useUri = source["useUri"];
+	        this.uri = source["uri"];
+	        this.sshEnabled = source["sshEnabled"];
+	        this.sshHost = source["sshHost"];
+	        this.sshPort = source["sshPort"];
+	        this.sshUsername = source["sshUsername"];
+	        this.sshPassword = source["sshPassword"];
+	        this.sshKeyPath = source["sshKeyPath"];
+	        this.timeout = source["timeout"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MongoDatabase {
+	    name: string;
+	    sizeOnDisk: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoDatabase(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.sizeOnDisk = source["sizeOnDisk"];
+	    }
+	}
+	export class MongoDocumentResult {
+	    documents: string[];
+	    total: number;
+	    page: number;
+	    pageSize: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoDocumentResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.documents = source["documents"];
+	        this.total = source["total"];
+	        this.page = source["page"];
+	        this.pageSize = source["pageSize"];
+	    }
+	}
+	export class MongoExportParams {
+	    database: string;
+	    collection: string;
+	    filter: string;
+	    format: string;
+	    filePath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoExportParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.database = source["database"];
+	        this.collection = source["collection"];
+	        this.filter = source["filter"];
+	        this.format = source["format"];
+	        this.filePath = source["filePath"];
+	    }
+	}
+	export class MongoIndex {
+	    name: string;
+	    keys: Record<string, number>;
+	    unique: boolean;
+	    sparse: boolean;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoIndex(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.keys = source["keys"];
+	        this.unique = source["unique"];
+	        this.sparse = source["sparse"];
+	        this.type = source["type"];
+	    }
+	}
+	export class MongoIndexSpec {
+	    keys: Record<string, number>;
+	    unique: boolean;
+	    sparse: boolean;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoIndexSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.keys = source["keys"];
+	        this.unique = source["unique"];
+	        this.sparse = source["sparse"];
+	        this.name = source["name"];
+	    }
+	}
+	export class MongoQueryParams {
+	    database: string;
+	    collection: string;
+	    filter: string;
+	    sort: string;
+	    projection: string;
+	    page: number;
+	    pageSize: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoQueryParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.database = source["database"];
+	        this.collection = source["collection"];
+	        this.filter = source["filter"];
+	        this.sort = source["sort"];
+	        this.projection = source["projection"];
+	        this.page = source["page"];
+	        this.pageSize = source["pageSize"];
+	    }
+	}
+	export class MongoSchemaField {
+	    name: string;
+	    frequency: number;
+	    types: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoSchemaField(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.frequency = source["frequency"];
+	        this.types = source["types"];
+	    }
+	}
+	export class MongoSchemaAnalysis {
+	    collection: string;
+	    sampleSize: number;
+	    totalDocs: number;
+	    fields: MongoSchemaField[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoSchemaAnalysis(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collection = source["collection"];
+	        this.sampleSize = source["sampleSize"];
+	        this.totalDocs = source["totalDocs"];
+	        this.fields = this.convertValues(source["fields"], MongoSchemaField);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class MongoTestResult {
+	    success: boolean;
+	    message: string;
+	    serverVersion?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MongoTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.serverVersion = source["serverVersion"];
+	        this.error = source["error"];
 	    }
 	}
 	export class SQLStatement {
