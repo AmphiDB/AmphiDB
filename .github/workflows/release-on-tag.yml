@@ -87,11 +87,11 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ matrix.platform }}" -eq "windows/arm64") {
-            choco install llvm-mingw -y
+            choco install zig -y
             "CGO_ENABLED=1" | Out-File -FilePath $env:GITHUB_ENV -Append
-            "CC=aarch64-w64-mingw32-gcc" | Out-File -FilePath $env:GITHUB_ENV -Append
-            "CXX=aarch64-w64-mingw32-g++" | Out-File -FilePath $env:GITHUB_ENV -Append
-            where.exe aarch64-w64-mingw32-gcc
+            "CC=zig cc -target aarch64-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "CXX=zig c++ -target aarch64-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Append
+            where.exe zig
           } else {
             "CGO_ENABLED=1" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
