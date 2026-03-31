@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MySQL Manager - Version Management Script
+# AmphiDB - Version Management Script
 # This script helps manage version numbers across the project
 
 set -e
@@ -136,7 +136,7 @@ validate_version() {
 
 # Show help
 show_help() {
-    echo "MySQL Manager - Version Management"
+    echo "AmphiDB - Version Management"
     echo ""
     echo "Usage:"
     echo "  $0 show                    Show current version"

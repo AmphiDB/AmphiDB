@@ -11,17 +11,17 @@
     "email": "rlf@gmail.com"
   },
   "info": {
-    "companyName": "MySQL Manager",
-    "productName": "MySQL Manager",
+    "companyName": "AmphiDB",
+    "productName": "AmphiDB",
     "productVersion": "1.0.0",
-    "copyright": "Copyright © 2024",
-    "comments": "A modern MySQL/MariaDB database management tool"
+    "copyright": "Copyright © 2026",
+    "comments": "A modern MySQL/MariaDB/MongoDB database management tool"
   },
   "nsisType": "multiple",
   "obfuscated": false,
   "debianPackage": {
     "packageName": "AmphiDB",
-    "packageDescription": "A modern MySQL/MariaDB database management tool",
+    "packageDescription": "A modern MySQL/MariaDB/MongoDB database management tool",
     "packageVersion": "1.0.0",
     "maintainer": "renlongfei <rlf@gmail.com>",
     "homepage": "https://github.com/AmphiDB/AmphiDB"

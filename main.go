@@ -21,9 +21,9 @@ var assets embed.FS
 //go:embed build/appicon.png
 var icon []byte
 
-var version = "0.0.0"
+var version = "1.0.0"
 
-const appName = "MySQL"
+const appName = "AmphiDB"
 
 func main() {
 	// Create an instance of the app structure
@@ -31,7 +31,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "MySQL Management Tool",
+		Title:  "AmphiDB",
 		Width:  1280,
 		Height: 800,
 		AssetServer: &assetserver.Options{
