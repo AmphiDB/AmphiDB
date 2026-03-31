@@ -1,27 +1,7 @@
 <template>
-  <div class="data-grid">
-    <!-- 使用虚拟滚动表格处理大数据集 -->
-    <div v-if="useVirtualScroll" class="virtual-table-wrapper">
-      <el-auto-resizer>
-        <template #default="{ height, width }">
-          <el-table-v2
-            :columns="virtualColumns"
-            :data="displayData"
-            :width="width"
-            :height="height - (showPagination ? 60 : 0)"
-            :row-height="42"
-            :header-height="42"
-            :estimated-row-height="42"
-            fixed
-            v-loading="loading"
-          />
-        </template>
-      </el-auto-resizer>
-    </div>
-
-    <!-- 传统表格用于小数据集 -->
+  <div class="data-grid" ref="gridRootRef">
+    <!-- 传统表格（支持编辑、正确颜色，分页已限制行数） -->
     <el-table
-      v-else
       :data="displayData"
       border
       stripe
@@ -114,7 +94,7 @@
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
-        :page-sizes="[50, 100, 200, 500, 1000, 5000]"
+        :page-sizes="[50, 100, 200, 500, 1000]"
         :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         @size-change="handlePageSizeChange"
@@ -159,7 +139,7 @@ const props = withDefaults(defineProps<Props>(), {
   foreignKeys: () => [],
   profileId: '',
   database: '',
-  virtualScrollThreshold: 500, // 默认超过500行启用虚拟滚动
+  virtualScrollThreshold: 50, // 超过此行数启用虚拟滚动，减少滚动卡顿
 });
 
 const emit = defineEmits<{
@@ -175,24 +155,26 @@ const pageSize = ref(props.pageSize);
 
 // 动态表格高度
 const tableHeight = ref(500)
-const gridEl = ref<HTMLElement | null>(null)
+const gridRootRef = ref<HTMLElement | null>(null)
 let ro: ResizeObserver | null = null
 
 const updateTableHeight = () => {
-  // Find the .data-grid element and subtract pagination height
-  const el = document.querySelector('.data-grid') as HTMLElement | null
+  const el = gridRootRef.value
   if (!el) return
   const paginationH = props.showPagination ? 60 : 0
-  tableHeight.value = el.clientHeight - paginationH
+  const h = el.clientHeight - paginationH
+  if (h > 100) tableHeight.value = h
 }
 
 onMounted(() => {
-  updateTableHeight()
-  const el = document.querySelector('.data-grid') as HTMLElement | null
-  if (el) {
-    ro = new ResizeObserver(updateTableHeight)
-    ro.observe(el)
-  }
+  // Use nextTick to ensure the element has been laid out
+  nextTick(() => {
+    updateTableHeight()
+    if (gridRootRef.value) {
+      ro = new ResizeObserver(updateTableHeight)
+      ro.observe(gridRootRef.value)
+    }
+  })
 })
 
 onUnmounted(() => { ro?.disconnect() })
@@ -494,7 +476,7 @@ defineExpose({
 
 .virtual-table-wrapper {
   flex: 1;
-  min-height: 400px;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -518,10 +500,25 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #303133;
 }
 
 .cell-content:hover {
   background-color: #f5f7fa;
+}
+
+/* Reduce paint cost for the scrollable table body */
+:deep(.el-table__body-wrapper) {
+  contain: layout;
+}
+
+:deep(.el-table__body tr) {
+  contain: layout style;
+}
+
+/* Ensure cell text is always black */
+:deep(.el-table td.el-table__cell) {
+  color: #303133;
 }
 
 .json-dialog-toolbar {
@@ -531,11 +528,11 @@ defineExpose({
 }
 
 .json-textarea :deep(textarea) {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
+  color: #303133;
   line-height: 1.6;
 }
-
 .cell-editor-wrapper {
   width: 100%;
 }
@@ -551,6 +548,16 @@ defineExpose({
   height: 40px;
   max-height: 40px;
   overflow: hidden;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #303133;
+}
+
+:deep(.el-table th.el-table__cell) {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  background-color: #f5f7fa;
 }
 
 :deep(.el-table__row) {
