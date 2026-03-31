@@ -75,7 +75,11 @@ jobs:
         run: wails build -clean -platform "${{ matrix.platform }}" -tags webkit2_41
 
       - name: Build app with Wails (Non-Linux)
-        if: runner.os != 'Linux'
+        if: runner.os == 'Windows'
+        run: wails build -clean -platform "${{ matrix.platform }}" -webview2 embed
+
+      - name: Build app with Wails (macOS)
+        if: runner.os == 'macOS'
         run: wails build -clean -platform "${{ matrix.platform }}"
 
       - name: Package build output (Windows)
@@ -86,7 +90,17 @@ jobs:
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           $tag = "${{ github.ref_name }}"
           $name = "AmphiDB-$tag-${{ matrix.package_suffix }}.zip"
-          Compress-Archive -Path build/bin/* -DestinationPath "dist/$name" -Force
+
+          # Prefer AmphiDB.exe, fallback to the first .exe in build/bin
+          $exe = "build/bin/AmphiDB.exe"
+          if (-not (Test-Path $exe)) {
+            $exe = (Get-ChildItem -Path build/bin -Filter *.exe | Select-Object -First 1).FullName
+          }
+          if (-not $exe) {
+            throw "No executable found in build/bin"
+          }
+
+          Compress-Archive -Path $exe -DestinationPath "dist/$name" -Force
 
       - name: Package build output (macOS/Linux)
         if: runner.os != 'Windows'
