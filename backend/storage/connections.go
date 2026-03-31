@@ -24,18 +24,6 @@ func (c *ConnectionsStorage) DefaultConnections() []types.ConnectionProfile {
 	return []types.ConnectionProfile{}
 }
 
-func (c *ConnectionsStorage) defaultConnectionsItem() types.ConnectionProfile {
-	return types.ConnectionProfile{
-		Host:     "127.0.0.1",
-		Port:     3306,
-		Username: "root",
-		Password: "123456",
-		Database: "",
-		Charset:  "utf8mb4",
-		Timeout:  10,
-	}
-}
-
 // GetConnections retrieves all connection profiles.
 func (c *ConnectionsStorage) GetConnections() (ret []types.ConnectionProfile) {
 	conf, err := c.stroage.Load()

@@ -14,7 +14,7 @@ import (
 // setupTestStorage creates a test ConfigStorage instance
 func setupTestStorage(t *testing.T) (*ConfigStorage, func()) {
 	// Ensure config directory exists
-	configDir := filepath.Join(userdir.GetConfigHome(), "MyGUI")
+	configDir := filepath.Join(userdir.GetConfigHome(), appConfigDirName)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("Failed to create config directory: %v", err)
 	}

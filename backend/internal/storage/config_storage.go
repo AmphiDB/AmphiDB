@@ -12,6 +12,8 @@ import (
 	"github.com/vrischmann/userdir"
 )
 
+const appConfigDirName = "AmphiDB"
+
 // ConfigStorage manages application configuration and connection profiles using SQLite
 type ConfigStorage struct {
 	db *sql.DB
@@ -20,7 +22,7 @@ type ConfigStorage struct {
 // NewConfigStorage creates a new ConfigStorage instance and initializes the database
 func NewConfigStorage() (*ConfigStorage, error) {
 	// Get config directory
-	configDir := filepath.Join(userdir.GetConfigHome(), "MyGUI")
+	configDir := filepath.Join(userdir.GetConfigHome(), appConfigDirName)
 	dbPath := filepath.Join(configDir, "config.db")
 	return NewConfigStorageWithPath(dbPath)
 }

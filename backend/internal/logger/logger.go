@@ -16,6 +16,8 @@ import (
 	"github.com/vrischmann/userdir"
 )
 
+const appConfigDirName = "AmphiDB"
+
 // Logger handles application logging to both file and SQLite database
 type Logger struct {
 	logFile *os.File
@@ -27,7 +29,7 @@ type Logger struct {
 // NewLogger creates a new Logger instance
 func NewLogger(level types.LogLevel) (*Logger, error) {
 	// Get config directory
-	configDir := filepath.Join(userdir.GetConfigHome(), "MyGUI")
+	configDir := filepath.Join(userdir.GetConfigHome(), appConfigDirName)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -361,7 +363,10 @@ func (l *Logger) ExportLogs(startTime, endTime time.Time) (string, error) {
 	defer rows.Close()
 
 	// Create export file
-	configDir := filepath.Join(userdir.GetConfigHome(), "MyGUI")
+	configDir := filepath.Join(userdir.GetConfigHome(), appConfigDirName)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create export directory: %w", err)
+	}
 	exportPath := filepath.Join(configDir, fmt.Sprintf("logs_export_%s.log", time.Now().Format("20060102_150405")))
 
 	exportFile, err := os.Create(exportPath)
