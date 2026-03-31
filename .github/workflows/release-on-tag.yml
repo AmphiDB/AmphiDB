@@ -136,6 +136,26 @@ jobs:
         if: runner.os == 'macOS'
         run: wails build -clean -platform "${{ matrix.platform }}"
 
+      - name: Smoke test Windows x64 executable
+        if: runner.os == 'Windows' && matrix.platform == 'windows/amd64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = "build/bin/AmphiDB.exe"
+          if (-not (Test-Path $exe)) {
+            $exe = (Get-ChildItem -Path build/bin -Filter *.exe | Where-Object { $_.Name -notmatch 'installer' } | Select-Object -First 1).FullName
+          }
+          if (-not $exe) {
+            throw "No portable executable found for smoke test"
+          }
+
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) {
+            throw "Windows x64 smoke test failed: process exited immediately"
+          }
+          Stop-Process -Id $p.Id -Force
+
       - name: Package build output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
