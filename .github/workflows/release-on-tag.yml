@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
       - "V*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag (e.g. vX.Y.Z)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -17,10 +23,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: windows-x86
+          - name: windows-x64
             os: windows-latest
-            platform: windows/386
-            package_suffix: windows-x86
+            platform: windows/amd64
+            package_suffix: windows-x64
           - name: windows-arm64
             os: windows-latest
             platform: windows/arm64
@@ -38,6 +44,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Normalize version and platform labels
+        id: normalize
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            raw_tag="${{ github.event.inputs.tag }}"
+          else
+            raw_tag="${GITHUB_REF_NAME}"
+          fi
+
+          version="${raw_tag#v}"
+          version="${version#V}"
+          platform_tag="${{ matrix.platform }}"
+          platform_tag="${platform_tag/windows\//}"
+          platform_tag="${platform_tag/amd64/x64}"
+
+          echo "raw_tag=$raw_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "platform_tag=$platform_tag" >> "$GITHUB_OUTPUT"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -49,6 +75,12 @@ jobs:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis jq -y
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -74,9 +106,19 @@ jobs:
         if: runner.os == 'Linux'
         run: wails build -clean -platform "${{ matrix.platform }}" -tags webkit2_41
 
-      - name: Build app with Wails (Non-Linux)
+      - name: Build app with Wails (Windows Portable)
         if: runner.os == 'Windows'
-        run: wails build -clean -platform "${{ matrix.platform }}" -webview2 embed
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = "1"
+          wails build -clean -platform "${{ matrix.platform }}" -webview2 embed
+
+      - name: Build app with Wails (Windows Installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = "1"
+          wails build -clean -platform "${{ matrix.platform }}" -webview2 embed -nsis
 
       - name: Build app with Wails (macOS)
         if: runner.os == 'macOS'
@@ -88,19 +130,26 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          $tag = "${{ github.ref_name }}"
-          $name = "AmphiDB-$tag-${{ matrix.package_suffix }}.zip"
+          $version = "${{ steps.normalize.outputs.version }}"
+          $platformTag = "${{ steps.normalize.outputs.platform_tag }}"
+          $portableName = "AmphiDB_Portable_${version}_${platformTag}.zip"
 
-          # Prefer AmphiDB.exe, fallback to the first .exe in build/bin
+          # Package portable binary (exclude installer exe)
           $exe = "build/bin/AmphiDB.exe"
           if (-not (Test-Path $exe)) {
-            $exe = (Get-ChildItem -Path build/bin -Filter *.exe | Select-Object -First 1).FullName
+            $exe = (Get-ChildItem -Path build/bin -Filter *.exe | Where-Object { $_.Name -notmatch 'installer' } | Select-Object -First 1).FullName
           }
           if (-not $exe) {
             throw "No executable found in build/bin"
           }
+          Compress-Archive -Path $exe -DestinationPath "dist/$portableName" -Force
 
-          Compress-Archive -Path $exe -DestinationPath "dist/$name" -Force
+          # Package installer if produced
+          $installer = Get-ChildItem -Path build/bin -Filter *installer*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($installer) {
+            $installerName = "AmphiDB_Setup_${version}_${platformTag}.exe"
+            Copy-Item $installer.FullName "dist/$installerName"
+          }
 
       - name: Package build output (macOS/Linux)
         if: runner.os != 'Windows'
@@ -117,7 +166,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.package_suffix }}
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.exe
           if-no-files-found: error
 
   release:
@@ -136,4 +187,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/*.exe
