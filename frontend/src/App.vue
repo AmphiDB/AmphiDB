@@ -54,7 +54,17 @@ onMounted(() => {
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #303133;
+}
+
+/* Override Element Plus font variables globally */
+:root {
+  --el-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --el-font-size-base: 13px;
+  --el-text-color-primary: #303133;
+  --el-text-color-regular: #606266;
 }
 
 .loading {
