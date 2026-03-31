@@ -2,8 +2,8 @@
   <el-container class="main-layout">
     <el-aside width="210px" class="sidebar">
       <div class="logo">
-        <span class="logo-icon">🗄</span>
-        <span class="logo-text">数据库管理工具</span>
+        <img :src="logoIcon" alt="AmphiDB" class="logo-icon" />
+        <span class="logo-text">AmphiDB</span>
       </div>
 
       <el-menu :default-active="activeMenu" class="sidebar-menu" @select="handleMenuSelect">
@@ -112,6 +112,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useConnectionStore } from '../stores/connection'
 import { useDatabaseStore } from '../stores/database'
 import { useMongoConnectionStore } from '../stores/mongoConnection'
+import logoIcon from '../assets/images/appicon.png'
 import {
   Connection, FolderOpened, EditPen, Refresh, Document,
   Coin, WarningFilled, InfoFilled, Switch,
@@ -155,9 +156,15 @@ const handleMenuSelect = (index: string) => router.push(index)
   padding: 16px 14px;
   border-bottom: 1px solid #2d3f52;
   flex-shrink: 0;
+  transform: translateY(8px);
 }
 
-.logo-icon { font-size: 20px; }
+.logo-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .logo-text { font-size: 14px; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .sidebar-menu {

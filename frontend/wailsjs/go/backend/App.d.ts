@@ -38,6 +38,8 @@ export function DropTable(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExecuteQuery(arg1:string,arg2:string):Promise<query.QueryResult>;
 
+export function ExecuteQueryInDatabase(arg1:string,arg2:string,arg3:string):Promise<query.QueryResult>;
+
 export function ExecuteQueryWithTimeout(arg1:string,arg2:string,arg3:number):Promise<query.QueryResult>;
 
 export function ExecuteSyncScript(arg1:string,arg2:string,arg3:string,arg4:types.SyncScript):Promise<void>;

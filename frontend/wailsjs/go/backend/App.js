@@ -62,6 +62,10 @@ export function ExecuteQuery(arg1, arg2) {
   return window['go']['backend']['App']['ExecuteQuery'](arg1, arg2);
 }
 
+export function ExecuteQueryInDatabase(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['ExecuteQueryInDatabase'](arg1, arg2, arg3);
+}
+
 export function ExecuteQueryWithTimeout(arg1, arg2, arg3) {
   return window['go']['backend']['App']['ExecuteQueryWithTimeout'](arg1, arg2, arg3);
 }

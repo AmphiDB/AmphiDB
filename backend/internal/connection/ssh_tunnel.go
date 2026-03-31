@@ -103,13 +103,13 @@ func (t *SSHTunnel) GetLocalPort() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse local address: %w", err)
 	}
-	
+
 	var port int
 	_, err = fmt.Sscanf(portStr, "%d", &port)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse port: %w", err)
 	}
-	
+
 	return port, nil
 }
 
@@ -189,6 +189,20 @@ func (t *SSHTunnel) handleConnection(localConn net.Conn) {
 
 // loadPrivateKey loads a private key from file
 func loadPrivateKey(path string) (ssh.Signer, error) {
+	// Expand ~ to the user's home directory
+	if len(path) >= 2 && path[:2] == "~/" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve home directory: %w", err)
+		}
+		path = home + path[1:]
+	}
+
+	// Warn if user accidentally provided a public key
+	if len(path) > 4 && path[len(path)-4:] == ".pub" {
+		return nil, fmt.Errorf("path appears to be a public key (.pub); please provide the private key path (e.g. ~/.ssh/id_rsa)")
+	}
+
 	keyData, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key file: %w", err)

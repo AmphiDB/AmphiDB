@@ -53,7 +53,8 @@
         :data="filteredTables"
         stripe
         style="width: 100%"
-        height="100%"
+        class="data-table"
+        :max-height="tableMaxHeight"
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="45" />
@@ -129,6 +130,18 @@ const filterText = ref('');
 const selectedTables = ref<Table[]>([]);
 const exportDialogVisible = ref(false);
 const exportContent = ref('');
+
+// ── Dynamic table height ───────────────────────────────────────────────────────
+const contentRef = ref<HTMLElement | null>(null)
+const tableMaxHeight = ref(400)
+
+const updateHeight = () => {
+  // Walk up to find the .table-list-content element
+  const el = document.querySelector('.table-list-content') as HTMLElement | null
+  if (el) tableMaxHeight.value = el.clientHeight || 400
+}
+
+let ro: ResizeObserver | null = null
 
 const currentDatabase = computed(() => databaseStore.currentDatabase);
 
@@ -259,6 +272,17 @@ onMounted(async () => {
   if (currentDatabase.value) {
     await loadTables();
   }
+  // Observe content area for size changes
+  const el = document.querySelector('.table-list-content') as HTMLElement | null
+  if (el) {
+    updateHeight()
+    ro = new ResizeObserver(updateHeight)
+    ro.observe(el)
+  }
+});
+
+onUnmounted(() => {
+  ro?.disconnect()
 });
 </script>
 
@@ -329,6 +353,8 @@ onMounted(async () => {
   overflow: hidden;
   padding: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .skeleton-wrap {
@@ -337,13 +363,19 @@ onMounted(async () => {
 
 :deep(.el-table) {
   font-size: 13px;
-  height: 100%;
+}
+
+:deep(.el-table .el-table__header-wrapper) {
+  flex-shrink: 0;
 }
 
 :deep(.el-table th.el-table__cell) {
   background-color: #fafafa;
   font-weight: 600;
   padding: 8px 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 :deep(.el-table td.el-table__cell) {

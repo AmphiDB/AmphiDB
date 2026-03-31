@@ -25,13 +25,13 @@ const (
 
 // QueryResult represents the result of a query execution
 type QueryResult struct {
-	ID            string        `json:"id"`
-	Type          QueryType     `json:"type"`
-	Columns       []string      `json:"columns,omitempty"`
+	ID            string          `json:"id"`
+	Type          QueryType       `json:"type"`
+	Columns       []string        `json:"columns,omitempty"`
 	Rows          [][]interface{} `json:"rows,omitempty"`
-	RowsAffected  int64         `json:"rowsAffected"`
-	ExecutionTime time.Duration `json:"executionTime"`
-	Error         *QueryError   `json:"error,omitempty"`
+	RowsAffected  int64           `json:"rowsAffected"`
+	ExecutionTime time.Duration   `json:"executionTime"`
+	Error         *QueryError     `json:"error,omitempty"`
 }
 
 // QueryError represents an error that occurred during query execution
@@ -205,9 +205,9 @@ func (e *Executor) determineQueryType(sqlQuery string) QueryType {
 	trimmed := strings.TrimSpace(sqlQuery)
 	upper := strings.ToUpper(trimmed)
 
-	if strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "SHOW") || 
-	   strings.HasPrefix(upper, "DESCRIBE") || strings.HasPrefix(upper, "DESC") ||
-	   strings.HasPrefix(upper, "EXPLAIN") {
+	if strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "SHOW") ||
+		strings.HasPrefix(upper, "DESCRIBE") || strings.HasPrefix(upper, "DESC") ||
+		strings.HasPrefix(upper, "EXPLAIN") {
 		return QueryTypeSelect
 	}
 
@@ -224,8 +224,8 @@ func (e *Executor) determineQueryType(sqlQuery string) QueryType {
 	}
 
 	if strings.HasPrefix(upper, "CREATE") || strings.HasPrefix(upper, "ALTER") ||
-	   strings.HasPrefix(upper, "DROP") || strings.HasPrefix(upper, "TRUNCATE") ||
-	   strings.HasPrefix(upper, "RENAME") {
+		strings.HasPrefix(upper, "DROP") || strings.HasPrefix(upper, "TRUNCATE") ||
+		strings.HasPrefix(upper, "RENAME") {
 		return QueryTypeDDL
 	}
 
@@ -286,4 +286,108 @@ func (e *Executor) unregisterQuery(queryID string) {
 	e.activeQueriesMu.Lock()
 	defer e.activeQueriesMu.Unlock()
 	delete(e.activeQueries, queryID)
+}
+
+// ExecuteInDatabase executes a SQL query within a specific database context.
+// It acquires a dedicated connection, runs USE `database`, then executes the query.
+func (e *Executor) ExecuteInDatabase(database, sqlQuery string) (*QueryResult, error) {
+	return e.ExecuteInDatabaseWithTimeout(database, sqlQuery, e.defaultTimeout)
+}
+
+// ExecuteInDatabaseWithTimeout executes a SQL query within a specific database context with a timeout.
+func (e *Executor) ExecuteInDatabaseWithTimeout(database, sqlQuery string, timeout time.Duration) (*QueryResult, error) {
+	startTime := time.Now()
+	queryID := uuid.New().String()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	e.registerQuery(queryID, cancel)
+	defer e.unregisterQuery(queryID)
+
+	result := &QueryResult{ID: queryID}
+
+	// Acquire a single connection so USE persists for the subsequent query
+	conn, err := e.db.Conn(ctx)
+	if err != nil {
+		result.Error = e.parseError(err)
+		return result, err
+	}
+	defer conn.Close()
+
+	// Switch to the target database
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("USE `%s`", database)); err != nil {
+		result.Error = e.parseError(err)
+		return result, err
+	}
+
+	// Determine query type and execute
+	queryType := e.determineQueryType(sqlQuery)
+	result.Type = queryType
+
+	switch queryType {
+	case QueryTypeSelect:
+		err = e.executeSelectOnConn(ctx, conn, sqlQuery, result)
+	default:
+		err = e.executeDMLOnConn(ctx, conn, sqlQuery, result)
+	}
+
+	result.ExecutionTime = time.Since(startTime)
+	if err != nil {
+		result.Error = e.parseError(err)
+		return result, err
+	}
+	return result, nil
+}
+
+func (e *Executor) executeSelectOnConn(ctx context.Context, conn *sql.Conn, sqlQuery string, result *QueryResult) error {
+	rows, err := conn.QueryContext(ctx, sqlQuery)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	result.Columns = columns
+
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return err
+	}
+
+	var allRows [][]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+		row := make([]interface{}, len(columns))
+		for i, val := range values {
+			row[i] = e.convertValue(val, columnTypes[i])
+		}
+		allRows = append(allRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	result.Rows = allRows
+	result.RowsAffected = int64(len(allRows))
+	return nil
+}
+
+func (e *Executor) executeDMLOnConn(ctx context.Context, conn *sql.Conn, sqlQuery string, result *QueryResult) error {
+	res, err := conn.ExecContext(ctx, sqlQuery)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	result.RowsAffected = affected
+	return nil
 }

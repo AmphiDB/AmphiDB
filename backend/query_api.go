@@ -10,6 +10,36 @@ import (
 
 // QueryAPI 提供查询执行相关的 API 方法，供前端调用
 
+// ExecuteQueryInDatabase 在指定数据库上下文中执行 SQL 查询
+func (a *App) ExecuteQueryInDatabase(profileID, database, sql string) (*query.QueryResult, error) {
+	executor, err := a.getOrCreateQueryExecutor(profileID)
+	if err != nil {
+		return &query.QueryResult{
+			Error: &query.QueryError{Code: -1, Message: fmt.Sprintf("执行查询失败: %v", err), Position: -1},
+		}, nil
+	}
+
+	a.logger.Info("Executing query in database", map[string]interface{}{
+		"profile_id": profileID,
+		"database":   database,
+		"sql_length": len(sql),
+	})
+
+	result, err := executor.ExecuteInDatabase(database, sql)
+	if err != nil {
+		if result == nil {
+			result = &query.QueryResult{}
+		}
+		if result.Error == nil {
+			result.Error = &query.QueryError{Code: -1, Message: fmt.Sprintf("执行查询失败: %v", err), Position: -1}
+		}
+		return result, nil
+	}
+
+	a.saveQueryHistory(profileID, sql, result)
+	return result, nil
+}
+
 // ExecuteQuery 执行 SQL 查询（使用默认超时）
 func (a *App) ExecuteQuery(profileID, sql string) (*query.QueryResult, error) {
 	executor, err := a.getOrCreateQueryExecutor(profileID)

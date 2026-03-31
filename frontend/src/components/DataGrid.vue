@@ -26,6 +26,7 @@
       border
       stripe
       highlight-current-row
+      :max-height="tableHeight"
       @selection-change="handleSelectionChange"
       @sort-change="handleSortChange"
       @cell-dblclick="handleCellDoubleClick"
@@ -42,9 +43,7 @@
         :prop="column"
         :label="column"
         :sortable="sortable ? 'custom' : false"
-        min-width="80"
-        max-width="140"
-        width="140"
+        min-width="120"
         show-overflow-tooltip
       >
         <template #default="{ row, $index }">
@@ -126,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, h } from 'vue';
+import { ref, computed, watch, nextTick, h, onMounted, onUnmounted } from 'vue';
 import { ElCheckbox, ElMessage } from 'element-plus';
 import CellEditor from './CellEditor.vue';
 import type { OrderBy, Column, ForeignKey } from '../types/api';
@@ -173,6 +172,30 @@ const emit = defineEmits<{
 // 当前页码
 const currentPage = ref(1);
 const pageSize = ref(props.pageSize);
+
+// 动态表格高度
+const tableHeight = ref(500)
+const gridEl = ref<HTMLElement | null>(null)
+let ro: ResizeObserver | null = null
+
+const updateTableHeight = () => {
+  // Find the .data-grid element and subtract pagination height
+  const el = document.querySelector('.data-grid') as HTMLElement | null
+  if (!el) return
+  const paginationH = props.showPagination ? 60 : 0
+  tableHeight.value = el.clientHeight - paginationH
+}
+
+onMounted(() => {
+  updateTableHeight()
+  const el = document.querySelector('.data-grid') as HTMLElement | null
+  if (el) {
+    ro = new ResizeObserver(updateTableHeight)
+    ro.observe(el)
+  }
+})
+
+onUnmounted(() => { ro?.disconnect() })
 
 // 选中的行
 const selectedRows = ref<any[]>([]);
