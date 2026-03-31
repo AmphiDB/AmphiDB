@@ -6,6 +6,4 @@ frontend/dist
 # frontend/wailsjs/go/backend/App.js
 # frontend/wailsjs/go/backend/App.d.ts
 .cursor
-.github
-.kiro
 .vscode
