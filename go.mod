@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/stretchr/testify v1.10.0
 	github.com/vrischmann/userdir v0.0.0-20151206171402-20f291cebd68
-	github.com/wailsapp/wails/v2 v2.10.2
+	github.com/wailsapp/wails/v2 v2.12.0
 	go.mongodb.org/mongo-driver v1.17.9
 	golang.org/x/crypto v0.33.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -17,6 +17,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -42,7 +43,7 @@ require (
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	github.com/wailsapp/go-webview2 v1.0.19 // indirect
+	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
