@@ -62,11 +62,11 @@
 
         <div class="menu-divider" />
 
-        <!-- 始终显示：日志查看 
+        <!-- 始终显示：日志查看 -->
         <el-menu-item index="/logs">
           <el-icon><Document /></el-icon>
           <span>日志查看</span>
-        </el-menu-item> -->
+        </el-menu-item>
 
       </el-menu>
     </el-aside>

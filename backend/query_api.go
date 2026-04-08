@@ -6,6 +6,7 @@ import (
 
 	"mygui/backend/internal/query"
 	"mygui/backend/internal/storage"
+	"mygui/backend/types"
 )
 
 // QueryAPI 提供查询执行相关的 API 方法，供前端调用
@@ -36,7 +37,8 @@ func (a *App) ExecuteQueryInDatabase(profileID, database, sql string) (*query.Qu
 		return result, nil
 	}
 
-	a.saveQueryHistory(profileID, sql, result)
+	a.saveQueryHistory(profileID, database, sql, result)
+	a.checkAndLogSlowQuery(profileID, database, sql, result)
 	return result, nil
 }
 
@@ -100,7 +102,8 @@ func (a *App) ExecuteQuery(profileID, sql string) (*query.QueryResult, error) {
 	})
 
 	// 保存查询历史
-	a.saveQueryHistory(profileID, sql, result)
+	a.saveQueryHistory(profileID, "", sql, result)
+	a.checkAndLogSlowQuery(profileID, "", sql, result)
 
 	return result, nil
 }
@@ -168,7 +171,8 @@ func (a *App) ExecuteQueryWithTimeout(profileID, sql string, timeoutSeconds int)
 	})
 
 	// 保存查询历史
-	a.saveQueryHistory(profileID, sql, result)
+	a.saveQueryHistory(profileID, "", sql, result)
+	a.checkAndLogSlowQuery(profileID, "", sql, result)
 
 	return result, nil
 }
@@ -241,11 +245,46 @@ func (a *App) ClearQueryHistory(profileID string) error {
 	return nil
 }
 
-// saveQueryHistory 保存查询历史到数据库
-func (a *App) saveQueryHistory(profileID, sql string, result *query.QueryResult) {
-	// 获取当前数据库名称（如果有）
-	database := ""
+// checkAndLogSlowQuery checks if the query exceeded the slow query threshold and logs it if so.
+// This is non-blocking — errors are logged but not surfaced to the caller.
+func (a *App) checkAndLogSlowQuery(profileID, database, sqlText string, result *query.QueryResult) {
+	threshold, err := a.configStorage.GetSlowQueryThreshold(profileID)
+	if err != nil {
+		a.logger.Error("Failed to get slow query threshold", err, map[string]interface{}{
+			"profile_id": profileID,
+		})
+		return
+	}
 
+	durationMs := result.ExecutionTime.Milliseconds()
+	if durationMs <= int64(threshold) {
+		return
+	}
+
+	errorMessage := ""
+	if result.Error != nil {
+		errorMessage = result.Error.Message
+	}
+
+	entry := types.SlowQueryEntry{
+		ConnectionID: profileID,
+		DBType:       "mysql",
+		Database:     database,
+		QueryText:    sqlText,
+		DurationMs:   durationMs,
+		RowsAffected: result.RowsAffected,
+		ErrorMessage: errorMessage,
+	}
+
+	if err := a.configStorage.InsertSlowQuery(entry); err != nil {
+		a.logger.Error("Failed to insert slow query entry", err, map[string]interface{}{
+			"profile_id": profileID,
+		})
+	}
+}
+
+// saveQueryHistory 保存查询历史到数据库
+func (a *App) saveQueryHistory(profileID, database, sql string, result *query.QueryResult) {
 	entry := storage.QueryHistoryEntry{
 		Timestamp:     time.Now(),
 		ConnectionID:  profileID,

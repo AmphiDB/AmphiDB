@@ -70,6 +70,9 @@ func (a *App) MongoConnect(profileID string) error {
 		a.logger.Error("MongoConnect failed", err, nil)
 		return err
 	}
+	if client, clientErr := a.mongoConnectionManager.GetClient(profileID); clientErr == nil {
+		a.monitorManager.StartMongo(profileID, client, 2)
+	}
 	// 清除该 profileID 的缓存管理器，确保使用新连接
 	a.mu.Lock()
 	delete(a.mongoCollManagers, profileID)
@@ -88,6 +91,7 @@ func (a *App) MongoDisconnect(profileID string) error {
 		a.logger.Error("MongoDisconnect failed", err, nil)
 		return err
 	}
+	a.monitorManager.Stop(profileID)
 	// 清除该 profileID 的缓存管理器
 	a.mu.Lock()
 	delete(a.mongoCollManagers, profileID)
@@ -306,11 +310,42 @@ func (a *App) MongoRunAggregation(profileID string, dbName string, collName stri
 	if histErr := a.configStorage.SaveMongoQueryHistory(profileID, dbName, collName, pipelineJSON, execTimeMs, success); histErr != nil {
 		a.logger.Error("SaveMongoQueryHistory failed", histErr, nil)
 	}
+	// 检查并记录慢查询
+	a.checkAndLogMongoSlowQuery(profileID, dbName, collName, pipelineJSON, execTimeMs, err)
 	if err != nil {
 		a.logger.Error("MongoRunAggregation failed", err, nil)
 		return nil, err
 	}
 	return result, nil
+}
+
+// checkAndLogMongoSlowQuery checks if the MongoDB aggregation exceeded the slow query threshold
+// and logs it if so. Non-blocking — errors are logged but not surfaced to the caller.
+func (a *App) checkAndLogMongoSlowQuery(profileID, dbName, collName, pipelineJSON string, durationMs int64, execErr error) {
+	threshold, err := a.configStorage.GetSlowQueryThreshold(profileID)
+	if err != nil {
+		a.logger.Error("Failed to get slow query threshold", err, map[string]any{"profileID": profileID})
+		return
+	}
+	if durationMs <= int64(threshold) {
+		return
+	}
+	errorMessage := ""
+	if execErr != nil {
+		errorMessage = execErr.Error()
+	}
+	entry := types.SlowQueryEntry{
+		ConnectionID: profileID,
+		DBType:       "mongodb",
+		Database:     dbName,
+		Collection:   collName,
+		QueryText:    pipelineJSON,
+		DurationMs:   durationMs,
+		ErrorMessage: errorMessage,
+	}
+	if err := a.configStorage.InsertSlowQuery(entry); err != nil {
+		a.logger.Error("Failed to insert mongo slow query entry", err, map[string]any{"profileID": profileID})
+	}
 }
 
 // ===== Schema 分析 =====

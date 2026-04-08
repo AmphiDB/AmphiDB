@@ -12,7 +12,11 @@ export function AlterTable(arg1:string,arg2:string,arg3:string,arg4:schema.Table
 
 export function CancelQuery(arg1:string,arg2:string):Promise<void>;
 
+export function ClearExecutionLog(arg1:string,arg2:string):Promise<void>;
+
 export function ClearQueryHistory(arg1:string):Promise<void>;
+
+export function ClearSlowQueryLog(arg1:string):Promise<void>;
 
 export function CompareAndGenerateScript(arg1:string,arg2:string,arg3:string,arg4:string):Promise<types.SchemaDiff>;
 
@@ -56,6 +60,10 @@ export function GetConnectionStatus(arg1:string):Promise<string>;
 
 export function GetCreateTableDDL(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function GetExecutionLog(arg1:string,arg2:string,arg3:number):Promise<Array<types.ExecutionLogEntry>>;
+
+export function GetMonitoringSnapshot(arg1:string,arg2:string):Promise<types.MonitoringSnapshot>;
+
 export function GetQueryHistory(arg1:string,arg2:number):Promise<Array<storage.QueryHistoryEntry>>;
 
 export function GetRowCount(arg1:string,arg2:string,arg3:string,arg4:Array<repository.Filter>):Promise<number>;
@@ -63,6 +71,10 @@ export function GetRowCount(arg1:string,arg2:string,arg3:string,arg4:Array<repos
 export function GetSavedQueries(arg1:string):Promise<Array<storage.SavedQuery>>;
 
 export function GetSavedQuery(arg1:number):Promise<storage.SavedQuery>;
+
+export function GetSlowQueryLog(arg1:string,arg2:number):Promise<Array<types.SlowQueryEntry>>;
+
+export function GetSlowQueryThreshold(arg1:string):Promise<number>;
 
 export function GetSyncSummary(arg1:string,arg2:string,arg3:types.SchemaDiff):Promise<string>;
 
@@ -137,6 +149,8 @@ export function QueryData(arg1:string,arg2:repository.DataQuery):Promise<reposit
 export function SaveFileDialog(arg1:string,arg2:string,arg3:Array<backend.FileDialogFilter>):Promise<string>;
 
 export function SaveQuery(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<number>;
+
+export function SetSlowQueryThreshold(arg1:string,arg2:number):Promise<void>;
 
 export function SyncTableData(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 

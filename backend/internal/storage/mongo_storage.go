@@ -319,6 +319,12 @@ func (cs *ConfigStorage) SaveMongoQueryHistory(connID, db, coll, pipeline string
 	if err != nil {
 		return fmt.Errorf("failed to save mongo query history: %w", err)
 	}
+	// Auto-trim: keep only the 5000 most recent rows per connection
+	_, _ = cs.db.Exec(`
+		DELETE FROM mongo_query_history
+		WHERE connection_id = ? AND id NOT IN (
+			SELECT id FROM mongo_query_history WHERE connection_id = ? ORDER BY timestamp DESC LIMIT 5000
+		)`, connID, connID)
 	return nil
 }
 

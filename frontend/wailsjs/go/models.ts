@@ -621,6 +621,108 @@ export namespace types {
 		    return a;
 		}
 	}
+	export class DataPoint {
+	    // Go type: time
+	    timestamp: any;
+	    qps: number;
+	    tps: number;
+	    threadsConnected: number;
+	    threadsRunning: number;
+	    innodbBufHitRate: number;
+	    innodbRowLockWaits: number;
+	    innodbBufPoolReads: number;
+	    mongoConnections: number;
+	    mongoPageFaults: number;
+	    mongoMemResident: number;
+	    mongoGlobalLock: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DataPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.qps = source["qps"];
+	        this.tps = source["tps"];
+	        this.threadsConnected = source["threadsConnected"];
+	        this.threadsRunning = source["threadsRunning"];
+	        this.innodbBufHitRate = source["innodbBufHitRate"];
+	        this.innodbRowLockWaits = source["innodbRowLockWaits"];
+	        this.innodbBufPoolReads = source["innodbBufPoolReads"];
+	        this.mongoConnections = source["mongoConnections"];
+	        this.mongoPageFaults = source["mongoPageFaults"];
+	        this.mongoMemResident = source["mongoMemResident"];
+	        this.mongoGlobalLock = source["mongoGlobalLock"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExecutionLogEntry {
+	    id: number;
+	    // Go type: time
+	    timestamp: any;
+	    connectionId: string;
+	    dbType: string;
+	    database: string;
+	    collection: string;
+	    queryText: string;
+	    executionTime: number;
+	    rowsAffected: number;
+	    success: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExecutionLogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.connectionId = source["connectionId"];
+	        this.dbType = source["dbType"];
+	        this.database = source["database"];
+	        this.collection = source["collection"];
+	        this.queryText = source["queryText"];
+	        this.executionTime = source["executionTime"];
+	        this.rowsAffected = source["rowsAffected"];
+	        this.success = source["success"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ForeignKey {
 	    name: string;
 	    columns: string[];
@@ -940,6 +1042,40 @@ export namespace types {
 	        this.error = source["error"];
 	    }
 	}
+	export class MonitoringSnapshot {
+	    profileId: string;
+	    dbType: string;
+	    dataPoints: DataPoint[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MonitoringSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profileId = source["profileId"];
+	        this.dbType = source["dbType"];
+	        this.dataPoints = this.convertValues(source["dataPoints"], DataPoint);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SQLStatement {
 	    sql: string;
 	    type: string;
@@ -1014,6 +1150,55 @@ export namespace types {
 	        this.tablesOnlyInSource = source["tablesOnlyInSource"];
 	        this.tablesOnlyInTarget = source["tablesOnlyInTarget"];
 	        this.tableDifferences = this.convertValues(source["tableDifferences"], TableDiff);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SlowQueryEntry {
+	    id: number;
+	    // Go type: time
+	    timestamp: any;
+	    connectionId: string;
+	    dbType: string;
+	    database: string;
+	    collection: string;
+	    queryText: string;
+	    durationMs: number;
+	    rowsAffected: number;
+	    errorMessage: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SlowQueryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.connectionId = source["connectionId"];
+	        this.dbType = source["dbType"];
+	        this.database = source["database"];
+	        this.collection = source["collection"];
+	        this.queryText = source["queryText"];
+	        this.durationMs = source["durationMs"];
+	        this.rowsAffected = source["rowsAffected"];
+	        this.errorMessage = source["errorMessage"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

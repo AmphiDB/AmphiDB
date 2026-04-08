@@ -15,6 +15,7 @@ import (
 	mongoindex "mygui/backend/internal/mongo/index"
 	mongoquery "mygui/backend/internal/mongo/query"
 	mongoschema "mygui/backend/internal/mongo/schema"
+	"mygui/backend/internal/monitor"
 	"mygui/backend/internal/query"
 	"mygui/backend/internal/schema"
 	"mygui/backend/internal/security"
@@ -39,6 +40,9 @@ type App struct {
 	queryExecutors       map[string]*query.Executor
 	syncEngines          map[string]*syncengine.SyncEngine
 	importExportServices map[string]*importexport.Service
+
+	// 监控管理器
+	monitorManager *monitor.Manager
 
 	// MongoDB 管理器（按 profileID 索引）
 	mongoConnectionManager *mongoconn.Manager
@@ -100,6 +104,9 @@ func (a *App) Startup(ctx context.Context) {
 
 	// 初始化 MongoDB 连接管理器
 	a.mongoConnectionManager = mongoconn.NewManager(configStorage, encryptor)
+
+	// 初始化监控管理器
+	a.monitorManager = monitor.NewManager()
 
 	// 记录启动日志
 	a.logger.Info("Application started", map[string]interface{}{

@@ -10,8 +10,16 @@ export function CancelQuery(arg1, arg2) {
   return window['go']['backend']['App']['CancelQuery'](arg1, arg2);
 }
 
+export function ClearExecutionLog(arg1, arg2) {
+  return window['go']['backend']['App']['ClearExecutionLog'](arg1, arg2);
+}
+
 export function ClearQueryHistory(arg1) {
   return window['go']['backend']['App']['ClearQueryHistory'](arg1);
+}
+
+export function ClearSlowQueryLog(arg1) {
+  return window['go']['backend']['App']['ClearSlowQueryLog'](arg1);
 }
 
 export function CompareAndGenerateScript(arg1, arg2, arg3, arg4) {
@@ -98,6 +106,14 @@ export function GetCreateTableDDL(arg1, arg2, arg3) {
   return window['go']['backend']['App']['GetCreateTableDDL'](arg1, arg2, arg3);
 }
 
+export function GetExecutionLog(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['GetExecutionLog'](arg1, arg2, arg3);
+}
+
+export function GetMonitoringSnapshot(arg1, arg2) {
+  return window['go']['backend']['App']['GetMonitoringSnapshot'](arg1, arg2);
+}
+
 export function GetQueryHistory(arg1, arg2) {
   return window['go']['backend']['App']['GetQueryHistory'](arg1, arg2);
 }
@@ -112,6 +128,14 @@ export function GetSavedQueries(arg1) {
 
 export function GetSavedQuery(arg1) {
   return window['go']['backend']['App']['GetSavedQuery'](arg1);
+}
+
+export function GetSlowQueryLog(arg1, arg2) {
+  return window['go']['backend']['App']['GetSlowQueryLog'](arg1, arg2);
+}
+
+export function GetSlowQueryThreshold(arg1) {
+  return window['go']['backend']['App']['GetSlowQueryThreshold'](arg1);
 }
 
 export function GetSyncSummary(arg1, arg2, arg3) {
@@ -260,6 +284,10 @@ export function SaveFileDialog(arg1, arg2, arg3) {
 
 export function SaveQuery(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['backend']['App']['SaveQuery'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function SetSlowQueryThreshold(arg1, arg2) {
+  return window['go']['backend']['App']['SetSlowQueryThreshold'](arg1, arg2);
 }
 
 export function SyncTableData(arg1, arg2, arg3, arg4, arg5, arg6) {

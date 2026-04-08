@@ -17,18 +17,18 @@ func (a *App) CreateProfile(profile types.ConnectionProfile) error {
 		})
 		return fmt.Errorf("创建连接配置失败: %w", err)
 	}
-	
+
 	a.logger.Info("Profile created", map[string]interface{}{
 		"profile_id":   profile.ID,
 		"profile_name": profile.Name,
 	})
-	
+
 	// 发送事件通知前端
 	a.emitEvent("connection:profile:created", map[string]interface{}{
 		"profileId": profile.ID,
 		"name":      profile.Name,
 	})
-	
+
 	return nil
 }
 
@@ -42,21 +42,21 @@ func (a *App) UpdateProfile(id string, profile types.ConnectionProfile) error {
 		})
 		return fmt.Errorf("更新连接配置失败: %w", err)
 	}
-	
+
 	a.logger.Info("Profile updated", map[string]interface{}{
 		"profile_id":   id,
 		"profile_name": profile.Name,
 	})
-	
+
 	// 清理该连接的所有管理器实例
 	a.cleanupManagersForProfile(id)
-	
+
 	// 发送事件通知前端
 	a.emitEvent("connection:profile:updated", map[string]interface{}{
 		"profileId": id,
 		"name":      profile.Name,
 	})
-	
+
 	return nil
 }
 
@@ -69,19 +69,19 @@ func (a *App) DeleteProfile(id string) error {
 		})
 		return fmt.Errorf("删除连接配置失败: %w", err)
 	}
-	
+
 	a.logger.Info("Profile deleted", map[string]interface{}{
 		"profile_id": id,
 	})
-	
+
 	// 清理该连接的所有管理器实例
 	a.cleanupManagersForProfile(id)
-	
+
 	// 发送事件通知前端
 	a.emitEvent("connection:profile:deleted", map[string]interface{}{
 		"profileId": id,
 	})
-	
+
 	return nil
 }
 
@@ -92,7 +92,7 @@ func (a *App) ListProfiles() ([]types.ConnectionProfile, error) {
 		a.logger.Error("Failed to list profiles", err, nil)
 		return nil, fmt.Errorf("获取连接配置列表失败: %w", err)
 	}
-	
+
 	return profiles, nil
 }
 
@@ -104,7 +104,7 @@ func (a *App) TestConnection(profile types.ConnectionProfile) error {
 		"port":         profile.Port,
 		"ssh_enabled":  profile.SSHEnabled,
 	})
-	
+
 	err := a.connectionManager.TestConnection(profile)
 	if err != nil {
 		a.logger.Error("Connection test failed", err, map[string]interface{}{
@@ -114,11 +114,11 @@ func (a *App) TestConnection(profile types.ConnectionProfile) error {
 		})
 		return fmt.Errorf("连接测试失败: %w", err)
 	}
-	
+
 	a.logger.Info("Connection test successful", map[string]interface{}{
 		"profile_name": profile.Name,
 	})
-	
+
 	return nil
 }
 
@@ -127,33 +127,38 @@ func (a *App) Connect(profileID string) error {
 	a.logger.Info("Connecting to database", map[string]interface{}{
 		"profile_id": profileID,
 	})
-	
+
 	_, err := a.connectionManager.Connect(profileID)
 	if err != nil {
 		a.logger.Error("Failed to connect", err, map[string]interface{}{
 			"profile_id": profileID,
 		})
-		
+
 		// 发送连接失败事件
 		a.emitEvent("connection:status:changed", map[string]interface{}{
 			"profileId": profileID,
 			"status":    "failed",
 			"error":     err.Error(),
 		})
-		
+
 		return fmt.Errorf("连接数据库失败: %w", err)
 	}
-	
+
 	a.logger.Info("Connected successfully", map[string]interface{}{
 		"profile_id": profileID,
 	})
-	
+
+	// Start monitoring for this MySQL connection.
+	if db, dbErr := a.connectionManager.GetConnection(profileID); dbErr == nil {
+		a.monitorManager.StartMySQL(profileID, db, 2)
+	}
+
 	// 发送连接成功事件
 	a.emitEvent("connection:status:changed", map[string]interface{}{
 		"profileId": profileID,
 		"status":    "connected",
 	})
-	
+
 	return nil
 }
 
@@ -166,20 +171,23 @@ func (a *App) Disconnect(profileID string) error {
 		})
 		return fmt.Errorf("断开连接失败: %w", err)
 	}
-	
+
 	a.logger.Info("Disconnected", map[string]interface{}{
 		"profile_id": profileID,
 	})
-	
+
 	// 清理该连接的所有管理器实例
 	a.cleanupManagersForProfile(profileID)
-	
+
+	// Stop monitoring for this connection.
+	a.monitorManager.Stop(profileID)
+
 	// 发送断开连接事件
 	a.emitEvent("connection:status:changed", map[string]interface{}{
 		"profileId": profileID,
 		"status":    "disconnected",
 	})
-	
+
 	return nil
 }
 
@@ -189,6 +197,6 @@ func (a *App) GetConnectionStatus(profileID string) (string, error) {
 	if err != nil {
 		return "disconnected", nil
 	}
-	
+
 	return "connected", nil
 }

@@ -115,7 +115,36 @@ func (cs *ConfigStorage) initSchema() error {
 		return err
 	}
 
-	return cs.initMongoSchema()
+	if err := cs.initMongoSchema(); err != nil {
+		return err
+	}
+
+	return cs.initMonitoringSchema()
+}
+
+// initMonitoringSchema creates the slow_query_log table and its indexes.
+// Called from initSchema().
+func (cs *ConfigStorage) initMonitoringSchema() error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS slow_query_log (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp     DATETIME DEFAULT CURRENT_TIMESTAMP,
+		connection_id TEXT NOT NULL,
+		db_type       TEXT NOT NULL,
+		database      TEXT,
+		collection    TEXT,
+		query_text    TEXT NOT NULL,
+		duration_ms   INTEGER NOT NULL,
+		rows_affected INTEGER,
+		error_message TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_slow_query_log_conn ON slow_query_log(connection_id);
+	CREATE INDEX IF NOT EXISTS idx_slow_query_log_ts   ON slow_query_log(timestamp);
+	`
+
+	_, err := cs.db.Exec(schema)
+	return err
 }
 
 // SaveProfile saves or updates a connection profile
@@ -397,6 +426,13 @@ func (cs *ConfigStorage) SaveQueryHistory(entry QueryHistoryEntry) error {
 	if err != nil {
 		return fmt.Errorf("failed to save query history: %w", err)
 	}
+
+	// Auto-trim: keep only the 5000 most recent rows per connection
+	_, _ = cs.db.Exec(`
+		DELETE FROM query_history
+		WHERE connection_id = ? AND id NOT IN (
+			SELECT id FROM query_history WHERE connection_id = ? ORDER BY timestamp DESC LIMIT 5000
+		)`, entry.ConnectionID, entry.ConnectionID)
 
 	return nil
 }
