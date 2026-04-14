@@ -3,13 +3,14 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"mygui/backend/types"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/vrischmann/userdir"
 )
 
 const appConfigDirName = "AmphiDB"
@@ -21,8 +22,27 @@ type ConfigStorage struct {
 
 // NewConfigStorage creates a new ConfigStorage instance and initializes the database
 func NewConfigStorage() (*ConfigStorage, error) {
-	// Get config directory
-	configDir := filepath.Join(userdir.GetConfigHome(), appConfigDirName)
+	// Get config directory based on OS
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+	var confDir string
+	switch runtime.GOOS {
+	case "windows":
+		// C:\Users\用户名\AppData\Roaming
+		confDir = filepath.Join(homeDir, "AppData", "Roaming")
+	case "darwin":
+		// macOS: ~/Library/Application Support
+		confDir = filepath.Join(homeDir, "Library", "Application Support")
+	default:
+		// Linux: ~/.config
+		confDir = filepath.Join(homeDir, ".config")
+	}
+	configDir := filepath.Join(confDir, appConfigDirName)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create config directory: %w", err)
+	}
 	dbPath := filepath.Join(configDir, "config.db")
 	return NewConfigStorageWithPath(dbPath)
 }
