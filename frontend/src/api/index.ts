@@ -119,6 +119,10 @@ export const SchemaAPI = {
     return wailsCall(() => App.AlterTable(profileId, database, table, changes as any), 'AlterTable');
   },
 
+  async alterTableForce(profileId: string, database: string, table: string, schema: TableSchema): Promise<void> {
+    return wailsCall(() => App.AlterTableForce(profileId, database, table, schema as any), 'AlterTableForce');
+  },
+
   async dropTable(profileId: string, database: string, table: string): Promise<void> {
     return wailsCall(() => App.DropTable(profileId, database, table), 'DropTable');
   },

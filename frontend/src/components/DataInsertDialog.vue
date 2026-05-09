@@ -88,6 +88,19 @@
           size="small"
         />
 
+        <!-- BIGINT 类型 - 使用文本输入避免精度丢失 -->
+        <el-input
+          v-else-if="isBigIntType(column.type)"
+          v-model="formData[column.name]"
+          size="small"
+          placeholder="输入整数值"
+          style="width: 100%"
+        >
+          <template #suffix>
+            <span class="bigint-hint">BIGINT</span>
+          </template>
+        </el-input>
+
         <!-- 数字类型 -->
         <el-input-number
           v-else-if="isNumericType(column.type)"
@@ -190,6 +203,9 @@ const initForm = () => {
         // 枚举类型默认选择第一个值
         const options = getEnumOptions(column.type);
         formData[column.name] = options.length > 0 ? options[0] : '';
+      } else if (isBigIntType(column.type)) {
+        // BIGINT 以字符串处理，避免精度丢失
+        formData[column.name] = '0';
       } else if (isNumericType(column.type)) {
         formData[column.name] = 0;
       } else {
@@ -240,9 +256,14 @@ const isTextType = (type: string): boolean => {
   return /^(text|mediumtext|longtext|tinytext)$/i.test(type);
 };
 
-// 判断是否为数字类型
+// 判断是否为 BIGINT 类型（需要特殊处理，避免 JavaScript 精度丢失）
+const isBigIntType = (type: string): boolean => {
+  return /^bigint(\(.*\))?$/i.test(type);
+};
+
+// 判断是否为数字类型（排除 BIGINT）
 const isNumericType = (type: string): boolean => {
-  return /^(int|integer|tinyint|smallint|mediumint|bigint|float|double|decimal|numeric)(\(.*\))?$/i.test(type);
+  return /^(int|integer|tinyint|smallint|mediumint|float|double|decimal|numeric)(\(.*\))?$/i.test(type);
 };
 
 // 获取日期选择器类型
@@ -379,5 +400,11 @@ const handleClose = () => {
 
 .field-default {
   color: #67c23a;
+}
+
+.bigint-hint {
+  font-size: 10px;
+  color: #909399;
+  font-style: italic;
 }
 </style>

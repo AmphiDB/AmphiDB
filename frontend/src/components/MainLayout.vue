@@ -14,44 +14,60 @@
           <span>连接管理</span>
         </el-menu-item>
 
-        <!-- MySQL 已连接时显示 -->
-        <template v-if="isConnected">
-          <div class="section-label">
+        <!-- MySQL 多连接：每个活跃连接显示一个分组 -->
+        <template v-for="conn in mysqlActiveList" :key="conn.id">
+          <div
+            class="section-label"
+            :class="{ 'section-active': currentConnection?.id === conn.id }"
+            @click="switchMysqlConnection(conn)"
+          >
             <el-tag type="primary" size="small" effect="plain">MySQL</el-tag>
-            <span class="section-conn-name">{{ mysqlConnName }}</span>
+            <span class="section-conn-name" :title="conn.name">{{ conn.name }}</span>
+            <el-icon v-if="currentConnection?.id === conn.id" class="section-check"><Check /></el-icon>
+            <el-icon class="section-close" title="关闭连接" @click.stop="handleDisconnectMysql(conn)"><Close /></el-icon>
           </div>
-          <el-menu-item index="/workspace">
-            <el-icon><FolderOpened /></el-icon>
-            <span>数据库工作台</span>
-          </el-menu-item>
-          <el-menu-item index="/query">
-            <el-icon><EditPen /></el-icon>
-            <span>SQL 查询</span>
-          </el-menu-item>
-          <el-menu-item index="/sync">
-            <el-icon><Refresh /></el-icon>
-            <span>结构同步</span>
-          </el-menu-item>
-          <el-menu-item index="/data-sync">
-            <el-icon><Switch /></el-icon>
-            <span>数据同步</span>
-          </el-menu-item>
+          <template v-if="currentConnection?.id === conn.id">
+            <el-menu-item :index="'/workspace:' + conn.id">
+              <el-icon><FolderOpened /></el-icon>
+              <span>数据库工作台</span>
+            </el-menu-item>
+            <el-menu-item :index="'/query:' + conn.id">
+              <el-icon><EditPen /></el-icon>
+              <span>SQL 查询</span>
+            </el-menu-item>
+            <el-menu-item :index="'/sync:' + conn.id">
+              <el-icon><Refresh /></el-icon>
+              <span>结构同步</span>
+            </el-menu-item>
+            <el-menu-item :index="'/data-sync:' + conn.id">
+              <el-icon><Switch /></el-icon>
+              <span>数据同步</span>
+            </el-menu-item>
+          </template>
         </template>
 
-        <!-- MongoDB 已连接时显示 -->
-        <template v-if="isMongoConnected">
-          <div class="section-label">
+        <!-- MongoDB 多连接：每个活跃连接显示一个分组 -->
+        <template v-for="conn in mongoActiveList" :key="conn.id">
+          <div
+            class="section-label"
+            :class="{ 'section-active': mongoStore.currentProfileId === conn.id }"
+            @click="switchMongoConnection(conn)"
+          >
             <el-tag type="success" size="small" effect="plain">MongoDB</el-tag>
-            <span class="section-conn-name">{{ mongoConnName }}</span>
+            <span class="section-conn-name" :title="conn.name">{{ conn.name }}</span>
+            <el-icon v-if="mongoStore.currentProfileId === conn.id" class="section-check"><Check /></el-icon>
+            <el-icon class="section-close" title="关闭连接" @click.stop="handleDisconnectMongo(conn)"><Close /></el-icon>
           </div>
-          <el-menu-item index="/mongo/workspace">
-            <el-icon><FolderOpened /></el-icon>
-            <span>数据库工作台</span>
-          </el-menu-item>
-          <el-menu-item index="/mongo/query">
-            <el-icon><EditPen /></el-icon>
-            <span>聚合查询</span>
-          </el-menu-item>
+          <template v-if="mongoStore.currentProfileId === conn.id">
+            <el-menu-item :index="'/mongo/workspace:' + conn.id">
+              <el-icon><FolderOpened /></el-icon>
+              <span>数据库工作台</span>
+            </el-menu-item>
+            <el-menu-item :index="'/mongo/query:' + conn.id">
+              <el-icon><EditPen /></el-icon>
+              <span>聚合查询</span>
+            </el-menu-item>
+          </template>
         </template>
 
         <!-- 未连接时的提示 -->
@@ -75,14 +91,30 @@
       <!-- Top bar: active connection badges -->
       <el-header class="header">
         <div class="header-left">
-          <template v-if="isConnected">
-            <el-tag type="primary" size="small" effect="dark" class="conn-badge">
-              MySQL: {{ currentConnection?.name }}
+          <template v-for="conn in mysqlActiveList" :key="'mysql-badge-' + conn.id">
+            <el-tag
+              type="primary"
+              size="small"
+              :effect="currentConnection?.id === conn.id ? 'dark' : 'plain'"
+              class="conn-badge"
+              closable
+              @click="switchMysqlConnection(conn)"
+              @close="handleDisconnectMysql(conn)"
+            >
+              MySQL: {{ conn.name }}
             </el-tag>
           </template>
-          <template v-if="isMongoConnected">
-            <el-tag type="success" size="small" effect="dark" class="conn-badge">
-              MongoDB: {{ mongoConnName }}
+          <template v-for="conn in mongoActiveList" :key="'mongo-badge-' + conn.id">
+            <el-tag
+              type="success"
+              size="small"
+              :effect="mongoStore.currentProfileId === conn.id ? 'dark' : 'plain'"
+              class="conn-badge"
+              closable
+              @click="switchMongoConnection(conn)"
+              @close="handleDisconnectMongo(conn)"
+            >
+              MongoDB: {{ conn.name }}
             </el-tag>
           </template>
           <span v-if="!isConnected && !isMongoConnected" class="no-conn-text">
@@ -109,13 +141,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useConnectionStore } from '../stores/connection'
 import { useDatabaseStore } from '../stores/database'
 import { useMongoConnectionStore } from '../stores/mongoConnection'
+import { ConnectionAPI } from '../api'
+import type { ConnectionProfile } from '../types/api'
+import type { MongoConnectionProfile } from '../types/mongo'
 import logoIcon from '../assets/images/appicon.png'
 import {
   Connection, FolderOpened, EditPen, Refresh, Document,
-  Coin, WarningFilled, InfoFilled, Switch,
+  Coin, WarningFilled, InfoFilled, Switch, Check, Close,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -126,16 +162,52 @@ const mongoStore = useMongoConnectionStore()
 
 const activeMenu = computed(() => route.path)
 const isConnected = computed(() => mysqlStore.isConnected)
-const isMongoConnected = computed(() => !!mongoStore.currentProfileId)
+const isMongoConnected = computed(() => mongoStore.isConnected)
 
 const currentConnection = computed(() => mysqlStore.currentConnection)
-const mysqlConnName = computed(() => mysqlStore.currentConnection?.name ?? '')
-const mongoConnName = computed(() => mongoStore.currentProfile?.name ?? '')
+const mysqlActiveList = computed(() => mysqlStore.activeConnectionList)
+const mongoActiveList = computed(() => mongoStore.activeConnectionList)
 
 const currentDatabase = computed(() => dbStore.currentDatabase)
 const currentTable = computed(() => dbStore.currentTable)
 
-const handleMenuSelect = (index: string) => router.push(index)
+// 切换 MySQL 当前连接
+const switchMysqlConnection = (conn: ConnectionProfile) => {
+  mysqlStore.setCurrentConnection(conn)
+}
+
+// 切换 MongoDB 当前连接
+const switchMongoConnection = (conn: MongoConnectionProfile) => {
+  mongoStore.setCurrentProfile(conn.id)
+}
+
+// 关闭 MySQL 连接
+const handleDisconnectMysql = async (conn: ConnectionProfile) => {
+  try {
+    await ConnectionAPI.disconnect(conn.id)
+    mysqlStore.removeActiveConnection(conn.id)
+    ElMessage.success(`已断开连接 ${conn.name}`)
+  } catch (e: any) {
+    ElMessage.error(`断开连接失败: ${e?.message || e}`)
+  }
+}
+
+// 关闭 MongoDB 连接
+const handleDisconnectMongo = async (conn: MongoConnectionProfile) => {
+  try {
+    await mongoStore.disconnect(conn.id)
+    ElMessage.success(`已断开连接 ${conn.name}`)
+  } catch (e: any) {
+    ElMessage.error(`断开连接失败: ${e?.message || e}`)
+  }
+}
+
+const handleMenuSelect = (index: string) => {
+  // 路由中可能包含连接ID后缀（如 /workspace:conn-id），需要提取实际路径
+  const colonIdx = index.indexOf(':')
+  const path = colonIdx > 0 ? index.substring(0, colonIdx) : index
+  router.push(path)
+}
 </script>
 
 <style scoped>
@@ -181,6 +253,19 @@ const handleMenuSelect = (index: string) => router.push(index)
   gap: 6px;
   padding: 10px 14px 4px;
   margin-top: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-radius: 4px;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+
+.section-label:hover {
+  background-color: #2d3f52;
+}
+
+.section-label.section-active {
+  background-color: rgba(59, 130, 246, 0.15);
 }
 
 .section-conn-name {
@@ -190,6 +275,30 @@ const handleMenuSelect = (index: string) => router.push(index)
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100px;
+  flex: 1;
+}
+
+.section-check {
+  font-size: 12px;
+  color: #3b82f6;
+  flex-shrink: 0;
+}
+
+.section-close {
+  font-size: 12px;
+  color: #64748b;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s;
+  margin-left: 2px;
+}
+
+.section-label:hover .section-close {
+  opacity: 1;
+}
+
+.section-close:hover {
+  color: #f56c6c;
 }
 
 /* No connection hint */
@@ -248,7 +357,8 @@ const handleMenuSelect = (index: string) => router.push(index)
   gap: 8px;
 }
 
-.conn-badge { cursor: default; }
+.conn-badge { cursor: pointer; }
+.conn-badge:hover { opacity: 0.8; }
 
 .no-conn-text {
   display: flex;

@@ -221,6 +221,69 @@ func (a *App) AlterTable(profileID, database, table string, newSchema schema.Tab
 	return nil
 }
 
+// AlterTableForce 修改表结构（强制执行，忽略数据丢失警告）
+func (a *App) AlterTableForce(profileID, database, table string, newSchema schema.TableSchema) error {
+	manager, err := a.getOrCreateSchemaManager(profileID)
+	if err != nil {
+		a.logger.Error("Failed to get schema manager", err, map[string]interface{}{
+			"profile_id": profileID,
+			"database":   database,
+			"table":      table,
+		})
+		return fmt.Errorf("修改表结构失败: %w", err)
+	}
+
+	a.logger.Info("Altering table (force)", map[string]interface{}{
+		"profile_id": profileID,
+		"database":   database,
+		"table":      table,
+	})
+
+	// 获取当前表结构
+	currentSchema, err := manager.GetTableSchema(database, table)
+	if err != nil {
+		a.logger.Error("Failed to get current table schema", err, map[string]interface{}{
+			"profile_id": profileID,
+			"database":   database,
+			"table":      table,
+		})
+		return fmt.Errorf("获取当前表结构失败: %w", err)
+	}
+
+	// 计算变更
+	changes := schema.CompareSchemas(currentSchema, &newSchema)
+
+	if len(changes) == 0 {
+		return nil
+	}
+
+	// 强制执行，跳过 data loss 检查
+	err = manager.AlterTable(database, table, changes, true)
+	if err != nil {
+		a.logger.Error("Failed to alter table (force)", err, map[string]interface{}{
+			"profile_id": profileID,
+			"database":   database,
+			"table":      table,
+		})
+		return fmt.Errorf("修改表结构失败: %w", err)
+	}
+
+	a.logger.Info("Table altered successfully (force)", map[string]interface{}{
+		"profile_id": profileID,
+		"database":   database,
+		"table":      table,
+	})
+
+	// 发送事件通知前端
+	a.emitEvent("schema:table:altered", map[string]interface{}{
+		"profileId": profileID,
+		"database":  database,
+		"table":     table,
+	})
+
+	return nil
+}
+
 // DropTable 删除表
 func (a *App) DropTable(profileID, database, table string) error {
 	manager, err := a.getOrCreateSchemaManager(profileID)

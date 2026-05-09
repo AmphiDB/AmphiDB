@@ -178,12 +178,47 @@ const executeTableModification = async (schema: TableSchema) => {
       return;
     }
 
-    await SchemaAPI.alterTable(
-      connectionStore.currentConnection.id,
-      databaseStore.currentDatabase,
-      currentSchema.value.name,
-      changes
-    );
+    try {
+      await SchemaAPI.alterTable(
+        connectionStore.currentConnection.id,
+        databaseStore.currentDatabase,
+        currentSchema.value.name,
+        changes
+      );
+    } catch (alterError: any) {
+      const errMsg = alterError?.message || String(alterError);
+      // 检测 data loss warning，弹出确认对话框
+      if (errMsg.includes('data loss warning')) {
+        try {
+          await ElMessageBox.confirm(
+            '此操作将删除列中的数据，是否继续执行？',
+            '数据丢失警告',
+            {
+              confirmButtonText: '确认执行',
+              cancelButtonText: '取消',
+              type: 'warning',
+            }
+          );
+          // 用户确认，使用 force 模式重试
+          await SchemaAPI.alterTableForce(
+            connectionStore.currentConnection.id,
+            databaseStore.currentDatabase,
+            currentSchema.value.name,
+            schema
+          );
+        } catch (confirmError: any) {
+          // 用户取消了确认对话框
+          if (confirmError === 'cancel' || confirmError?.message === 'cancel') {
+            ElMessage.info('已取消操作');
+            return;
+          }
+          // force 执行也失败了
+          throw confirmError;
+        }
+      } else {
+        throw alterError;
+      }
+    }
 
     ElMessage.success('表结构修改成功');
     editorVisible.value = false;

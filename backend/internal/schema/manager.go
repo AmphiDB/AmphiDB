@@ -263,12 +263,16 @@ type SchemaChange struct {
 }
 
 // AlterTable modifies a table schema
-func (m *Manager) AlterTable(database, table string, changes []SchemaChange) error {
-	// Check for data loss warnings
-	warnings := m.detectDataLossWarnings(changes)
-	if len(warnings) > 0 {
-		// Return warnings as error - caller should handle confirmation
-		return fmt.Errorf("data loss warning: %s", strings.Join(warnings, "; "))
+// If force is true, data loss warnings are ignored
+func (m *Manager) AlterTable(database, table string, changes []SchemaChange, force ...bool) error {
+	// Check for data loss warnings (skip if force=true)
+	isForce := len(force) > 0 && force[0]
+	if !isForce {
+		warnings := m.detectDataLossWarnings(changes)
+		if len(warnings) > 0 {
+			// Return warnings as error - caller should handle confirmation
+			return fmt.Errorf("data loss warning: %s", strings.Join(warnings, "; "))
+		}
 	}
 
 	// Generate ALTER TABLE statements

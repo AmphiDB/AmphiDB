@@ -50,6 +50,21 @@
       ref="editorRef"
     />
 
+    <!-- BIGINT 类型 - 使用文本输入避免精度丢失 -->
+    <el-input
+      v-else-if="isBigIntType"
+      v-model="editValue"
+      size="small"
+      @blur="handleBlur"
+      @keyup.enter="handleChange"
+      @keyup.esc="handleCancel"
+      ref="editorRef"
+    >
+      <template #suffix>
+        <span class="bigint-hint">BIGINT</span>
+      </template>
+    </el-input>
+
     <!-- 数字类型 -->
     <el-input-number
       v-else-if="isNumericType"
@@ -125,9 +140,14 @@ const isDateTimeType = computed(() => {
   return /^(date|datetime|timestamp|time|year)$/i.test(props.column.type);
 });
 
-// 判断是否为数字类型
+// 判断是否为 BIGINT 类型（需要特殊处理，避免 JavaScript 精度丢失）
+const isBigIntType = computed(() => {
+  return /^bigint(\(.*\))?$/i.test(props.column.type);
+});
+
+// 判断是否为数字类型（排除 BIGINT）
 const isNumericType = computed(() => {
-  return /^(int|integer|tinyint|smallint|mediumint|bigint|float|double|decimal|numeric)(\(.*\))?$/i.test(props.column.type);
+  return /^(int|integer|tinyint|smallint|mediumint|float|double|decimal|numeric)(\(.*\))?$/i.test(props.column.type);
 });
 
 // 获取日期选择器类型
@@ -174,6 +194,11 @@ const loadForeignKeyOptions = async () => {
 const validateValue = (value: any): boolean => {
   if (value === null || value === undefined || value === '') {
     return props.column.nullable;
+  }
+
+  if (isBigIntType.value) {
+    // BIGINT 以字符串处理，验证是否为合法整数
+    return /^-?\d+$/.test(String(value));
   }
 
   if (isNumericType.value) {
@@ -257,5 +282,11 @@ watch(() => props.value, (val) => {
 <style scoped>
 .cell-editor {
   width: 100%;
+}
+
+.bigint-hint {
+  font-size: 10px;
+  color: #909399;
+  font-style: italic;
 }
 </style>

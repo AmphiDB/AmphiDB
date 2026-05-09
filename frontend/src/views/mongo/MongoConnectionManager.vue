@@ -26,15 +26,15 @@
           </div>
           <div class="profile-status">
             <el-tag
-              :type="store.isConnected(profile.id) ? 'success' : 'info'"
+              :type="store.isActive(profile.id) ? 'success' : 'info'"
               size="small"
             >
-              {{ store.isConnected(profile.id) ? '已连接' : '未连接' }}
+              {{ store.isActive(profile.id) ? '已连接' : '未连接' }}
             </el-tag>
           </div>
           <div class="profile-actions" @click.stop>
             <el-button
-              v-if="!store.isConnected(profile.id)"
+              v-if="!store.isActive(profile.id)"
               type="primary"
               size="small"
               :loading="connectingId === profile.id"
@@ -51,7 +51,7 @@
             <el-button
               type="danger"
               size="small"
-              :disabled="store.isConnected(profile.id)"
+              :disabled="store.isActive(profile.id)"
               @click="handleDelete(profile)"
             >删除</el-button>
           </div>

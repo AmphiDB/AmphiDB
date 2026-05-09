@@ -31,7 +31,7 @@
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">
           <el-tag
-            v-if="isCurrentConnection(row.id)"
+            v-if="isActive(row.id)"
             type="success"
             size="small"
           >
@@ -43,7 +43,7 @@
       <el-table-column label="操作" width="280" align="center" fixed="right">
         <template #default="{ row }">
           <el-button
-            v-if="!isCurrentConnection(row.id)"
+            v-if="!isActive(row.id)"
             type="primary"
             size="small"
             @click="handleConnect(row)"
@@ -69,7 +69,7 @@
             type="danger"
             size="small"
             @click="handleDelete(row)"
-            :disabled="isCurrentConnection(row.id)"
+            :disabled="isActive(row.id)"
           >
             删除
           </el-button>
@@ -92,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Plus } from '@element-plus/icons-vue';
 import { useRouter } from 'vue-router';
@@ -107,8 +107,8 @@ const loading = ref(false);
 const formVisible = ref(false);
 const currentProfile = ref<ConnectionProfile | null>(null);
 
-const isCurrentConnection = (id: string) => {
-  return connectionStore.currentConnection?.id === id;
+const isActive = (id: string) => {
+  return connectionStore.isActive(id);
 };
 
 const loadProfiles = async () => {
@@ -145,13 +145,16 @@ const handleConnect = async (profile: ConnectionProfile) => {
   loading.value = true;
   try {
     await ConnectionAPI.connect(profile.id);
-    connectionStore.setCurrentConnection(profile);
+    // 添加到活跃连接列表（支持多连接）
+    connectionStore.addActiveConnection(profile);
     ElMessage.success(`已连接到 ${profile.name}`);
     
-    // 连接成功后跳转到工作台
-    setTimeout(() => {
-      router.push('/workspace');
-    }, 500);
+    // 如果是第一个连接，跳转到工作台
+    if (connectionStore.activeConnectionList.length === 1) {
+      setTimeout(() => {
+        router.push('/workspace');
+      }, 500);
+    }
   } catch (error: any) {
     ElMessage.error(`连接失败: ${error.message || error}`);
   } finally {
@@ -163,7 +166,8 @@ const handleDisconnect = async (profile: ConnectionProfile) => {
   loading.value = true;
   try {
     await ConnectionAPI.disconnect(profile.id);
-    connectionStore.setCurrentConnection(null);
+    // 从活跃连接列表中移除
+    connectionStore.removeActiveConnection(profile.id);
     ElMessage.success(`已断开连接 ${profile.name}`);
   } catch (error: any) {
     ElMessage.error(`断开连接失败: ${error.message || error}`);

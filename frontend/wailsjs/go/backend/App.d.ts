@@ -10,6 +10,8 @@ import {backend} from '../models';
 
 export function AlterTable(arg1:string,arg2:string,arg3:string,arg4:schema.TableSchema):Promise<void>;
 
+export function AlterTableForce(arg1:string,arg2:string,arg3:string,arg4:schema.TableSchema):Promise<void>;
+
 export function CancelQuery(arg1:string,arg2:string):Promise<void>;
 
 export function ClearExecutionLog(arg1:string,arg2:string):Promise<void>;

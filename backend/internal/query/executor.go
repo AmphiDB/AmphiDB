@@ -251,6 +251,17 @@ func (e *Executor) convertValue(val interface{}, colType *sql.ColumnType) interf
 		return string(b)
 	}
 
+	// Handle BIGINT columns - convert to string to avoid JavaScript precision loss
+	dbType := strings.ToUpper(colType.DatabaseTypeName())
+	if dbType == "BIGINT" || dbType == "BIGINT UNSIGNED" {
+		switch v := val.(type) {
+		case int64:
+			return fmt.Sprintf("%d", v)
+		case uint64:
+			return fmt.Sprintf("%d", v)
+		}
+	}
+
 	return val
 }
 

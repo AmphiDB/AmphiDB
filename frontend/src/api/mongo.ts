@@ -25,7 +25,12 @@ const wailsCall = async <T>(fn: () => Promise<T>, methodName: string): Promise<T
     return await fn()
   } catch (error: any) {
     const msg = error?.message || String(error)
-    ElMessage.error(`${methodName} 失败: ${msg}`)
+    // 对权限错误显示更友好的提示
+    if (msg.includes('Unauthorized') || msg.includes('not authorized')) {
+      ElMessage.error(`${methodName} 失败: 当前用户权限不足，请检查数据库账号权限`)
+    } else {
+      ElMessage.error(`${methodName} 失败: ${msg}`)
+    }
     throw error
   }
 }

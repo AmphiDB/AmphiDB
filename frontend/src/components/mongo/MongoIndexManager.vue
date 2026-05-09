@@ -169,8 +169,13 @@ async function loadIndexes() {
   loading.value = true
   try {
     indexes.value = await MongoIndexAPI.listIndexes(props.profileId, props.dbName, props.collName)
-  } catch {
-    // error shown by API layer
+  } catch (e: any) {
+    const msg = e?.message || String(e)
+    if (msg.includes('Unauthorized') || msg.includes('not authorized')) {
+      ElMessage.warning('当前用户没有查看索引的权限，请使用有足够权限的账号连接')
+      indexes.value = []
+    }
+    // other errors already shown by API layer
   } finally {
     loading.value = false
   }

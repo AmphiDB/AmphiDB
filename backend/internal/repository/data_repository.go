@@ -111,6 +111,18 @@ func (dr *DataRepository) QueryData(query DataQuery) (*DataResult, error) {
 		return nil, fmt.Errorf("获取列信息失败: %w", err)
 	}
 
+	// 识别 BIGINT 列，统一以字符串返回避免 JavaScript 精度丢失
+	bigintCols := make(map[int]bool)
+	colTypes, err := rows.ColumnTypes()
+	if err == nil {
+		for i, ct := range colTypes {
+			dbType := strings.ToUpper(ct.DatabaseTypeName())
+			if dbType == "BIGINT" || dbType == "BIGINT UNSIGNED" {
+				bigintCols[i] = true
+			}
+		}
+	}
+
 	// 读取数据行
 	var dataRows [][]interface{}
 	for rows.Next() {
@@ -126,12 +138,26 @@ func (dr *DataRepository) QueryData(query DataQuery) (*DataResult, error) {
 			return nil, fmt.Errorf("扫描行数据失败: %w", err)
 		}
 
-		// 转换字节数组为字符串
+		// 转换字节数组为字符串，以及处理大整数
 		row := make([]interface{}, len(columns))
 		for i, val := range values {
-			if b, ok := val.([]byte); ok {
-				row[i] = string(b)
-			} else {
+			switch v := val.(type) {
+			case []byte:
+				row[i] = string(v)
+			case int64:
+				// BIGINT 列统一转为字符串，避免 JavaScript 精度丢失
+				if bigintCols[i] {
+					row[i] = fmt.Sprintf("%d", v)
+				} else {
+					row[i] = v
+				}
+			case uint64:
+				if bigintCols[i] {
+					row[i] = fmt.Sprintf("%d", v)
+				} else {
+					row[i] = v
+				}
+			default:
 				row[i] = val
 			}
 		}

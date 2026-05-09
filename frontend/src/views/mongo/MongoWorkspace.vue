@@ -154,6 +154,18 @@ watch(
   () => { activeTab.value = 'documents' }
 )
 
+// Reset database/collection selection when switching connections
+watch(
+  () => connStore.currentProfileId,
+  (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      dbStore.selectDatabase(null)
+      dbStore.selectCollection(null)
+      activeTab.value = 'documents'
+    }
+  }
+)
+
 // Explorer event handlers
 const handleSelectCollection = (dbName: string, collName: string) => {
   dbStore.selectDatabase(dbName)

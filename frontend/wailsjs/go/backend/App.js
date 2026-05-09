@@ -6,6 +6,10 @@ export function AlterTable(arg1, arg2, arg3, arg4) {
   return window['go']['backend']['App']['AlterTable'](arg1, arg2, arg3, arg4);
 }
 
+export function AlterTableForce(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['AlterTableForce'](arg1, arg2, arg3, arg4);
+}
+
 export function CancelQuery(arg1, arg2) {
   return window['go']['backend']['App']['CancelQuery'](arg1, arg2);
 }

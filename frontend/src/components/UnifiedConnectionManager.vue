@@ -262,7 +262,7 @@ const mysqlItems = computed<ProfileItem[]>(() =>
     id: p.id,
     name: p.name,
     hostLabel: `${p.username}@${p.host}:${p.port}`,
-    connected: mysqlStore.currentConnection?.id === p.id,
+    connected: mysqlStore.isActive(p.id),
     raw: p,
   }))
 )
@@ -274,7 +274,7 @@ const mongoItems = computed<ProfileItem[]>(() =>
     id: p.id,
     name: p.name,
     hostLabel: p.useUri ? (p.uri || 'URI 模式') : `${p.host}:${p.port}`,
-    connected: mongoStore.isConnected(p.id),
+    connected: mongoStore.isActive(p.id),
     raw: p,
   }))
 )
@@ -446,13 +446,20 @@ const handleConnect = async (item: ProfileItem) => {
   try {
     if (item.dbType === 'mysql') {
       await ConnectionAPI.connect(item.id)
-      mysqlStore.setCurrentConnection(item.raw as ConnectionProfile)
+      // 添加到活跃连接列表（支持多连接）
+      mysqlStore.addActiveConnection(item.raw as ConnectionProfile)
       ElMessage.success(`已连接到 ${item.name}`)
-      router.push('/workspace')
+      // 如果是第一个连接，跳转到工作台
+      if (mysqlStore.activeConnectionList.length === 1) {
+        router.push('/workspace')
+      }
     } else {
       await mongoStore.connect(item.id)
       ElMessage.success(`已连接到 ${item.name}`)
-      router.push('/mongo/workspace')
+      // 如果是第一个连接，跳转到工作台
+      if (mongoStore.activeConnectionList.length === 1) {
+        router.push('/mongo/workspace')
+      }
     }
   } catch (e: any) { ElMessage.error(e?.message || '连接失败') }
   finally { connectingKey.value = null }
@@ -463,7 +470,8 @@ const handleDisconnect = async (item: ProfileItem) => {
   try {
     if (item.dbType === 'mysql') {
       await ConnectionAPI.disconnect(item.id)
-      mysqlStore.setCurrentConnection(null)
+      // 从活跃连接列表中移除
+      mysqlStore.removeActiveConnection(item.id)
     } else {
       await mongoStore.disconnect(item.id)
     }

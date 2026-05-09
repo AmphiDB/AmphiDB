@@ -762,7 +762,38 @@ const handleSave = async () => {
       await SchemaAPI.createTable(props.profileId, props.database, form.value);
       ElMessage.success('创建表成功');
     } else {
-      await SchemaAPI.alterTable(props.profileId, props.database, props.table, form.value);
+      try {
+        await SchemaAPI.alterTable(props.profileId, props.database, props.table, form.value);
+      } catch (alterError: any) {
+        const errMsg = alterError?.message || String(alterError);
+        // 检测 data loss warning，弹出确认对话框
+        if (errMsg.includes('data loss warning')) {
+          try {
+            await ElMessageBox.confirm(
+              '此操作将删除列中的数据，是否继续执行？',
+              '数据丢失警告',
+              {
+                confirmButtonText: '确认执行',
+                cancelButtonText: '取消',
+                type: 'warning',
+              }
+            );
+            // 用户确认，使用 force 模式重试
+            await SchemaAPI.alterTableForce(props.profileId, props.database, props.table, form.value);
+          } catch (confirmError: any) {
+            // 用户取消了确认对话框
+            if (confirmError === 'cancel' || confirmError?.message === 'cancel') {
+              ElMessage.info('已取消操作');
+              saving.value = false;
+              return;
+            }
+            // force 执行也失败了
+            throw confirmError;
+          }
+        } else {
+          throw alterError;
+        }
+      }
       ElMessage.success('修改表结构成功');
     }
     emit('success');

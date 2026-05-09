@@ -143,7 +143,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Refresh,
@@ -357,6 +357,22 @@ const refreshDatabases = async () => {
   await loadDatabases()
   ElMessage.success('数据库列表已刷新')
 }
+
+// Watch for profileId changes (when switching connections)
+watch(
+  () => props.profileId,
+  async (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      // Clear all cached data
+      expandedDbs.clear()
+      Object.keys(dbCollectionsMap).forEach(k => delete dbCollectionsMap[k])
+      Object.keys(dbFilterMap).forEach(k => delete dbFilterMap[k])
+      activeDb.value = null
+      activeCollection.value = null
+      await loadDatabases()
+    }
+  }
+)
 
 onMounted(async () => {
   if (props.profileId) await loadDatabases()
