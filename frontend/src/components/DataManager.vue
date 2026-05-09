@@ -76,7 +76,7 @@
         :total="totalRows"
         :loading="loading || sqlLoading"
         :sortable="!sqlMode"
-        :editable="!sqlMode"
+        :editable="true"
         :show-pagination="true"
         :page-size="pageSize"
         @selection-change="handleSelectionChange"
@@ -214,12 +214,19 @@ const resetSql = () => {
 }
 
 const executeSql = async () => {
-  const sql = sqlInput.value.trim()
+  let sql = sqlInput.value.trim()
   if (!sql) return
   suggestVisible.value = false
   sqlError.value = ''
   sqlLoading.value = true
   sqlMode.value = true
+  
+  // 如果是SELECT查询且没有LIMIT子句，默认添加LIMIT 20
+  const upperSql = sql.toUpperCase()
+  if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
+    sql = sql.replace(/;?\s*$/, '') + ' LIMIT 20'
+  }
+  
   try {
     // Use the database-aware API to avoid "No database selected" errors
     const go = (window as any)['go']['backend']['App']

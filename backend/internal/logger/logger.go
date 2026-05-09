@@ -18,6 +18,10 @@ import (
 
 const appConfigDirName = "AmphiDB"
 
+// maxLogEntries is the maximum number of log entries to keep in the database.
+// When this limit is exceeded, the oldest entries are automatically deleted.
+const maxLogEntries = 10000
+
 // Logger handles application logging to both file and SQLite database
 type Logger struct {
 	logFile *os.File
@@ -244,6 +248,39 @@ func (l *Logger) writeToDatabase(timestamp time.Time, level types.LogLevel, oper
 		// If database write fails, at least log to file
 		fmt.Fprintf(l.logFile, "[ERROR] Failed to write to database: %v\n", err)
 	}
+
+	// Trim old logs if exceeding the maximum limit
+	l.trimLogs()
+}
+
+// trimLogs removes the oldest log entries when the total count exceeds maxLogEntries.
+// It deletes entries in batches to keep the database at or below the limit.
+func (l *Logger) trimLogs() {
+	var count int64
+	err := l.db.QueryRow("SELECT COUNT(*) FROM operation_logs").Scan(&count)
+	if err != nil {
+		fmt.Fprintf(l.logFile, "[ERROR] Failed to count logs for trimming: %v\n", err)
+		return
+	}
+
+	if count <= maxLogEntries {
+		return
+	}
+
+	// Delete the oldest entries that exceed the limit
+	deleteCount := count - maxLogEntries
+	query := `
+	DELETE FROM operation_logs
+	WHERE id IN (
+		SELECT id FROM operation_logs
+		ORDER BY timestamp ASC, id ASC
+		LIMIT ?
+	)
+	`
+	_, err = l.db.Exec(query, deleteCount)
+	if err != nil {
+		fmt.Fprintf(l.logFile, "[ERROR] Failed to trim old logs: %v\n", err)
+	}
 }
 
 // GetLogs retrieves logs from the database based on the provided filter
@@ -436,6 +473,159 @@ func (l *Logger) SetLevel(level types.LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.level = level
+}
+
+// LogSQLOperation records a SQL operation (INSERT/UPDATE/DELETE/DDL) for audit purposes
+func (l *Logger) LogSQLOperation(operation, sqlText, database, connectionID string, rowsAffected int64, success bool, errMsg string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	timestamp := time.Now()
+	level := "INFO"
+	if !success {
+		level = "ERROR"
+	}
+
+	details := map[string]interface{}{
+		"db_type":       "mysql",
+		"sql":           sqlText,
+		"database":      database,
+		"rows_affected": rowsAffected,
+		"success":       success,
+	}
+	if errMsg != "" {
+		details["error"] = errMsg
+	}
+
+	detailsJSON := ""
+	if detailsBytes, err := json.Marshal(details); err == nil {
+		detailsJSON = string(detailsBytes)
+	}
+
+	query := `
+	INSERT INTO operation_logs (timestamp, level, operation, message, details, connection_id)
+	VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	message := fmt.Sprintf("%s on %s", operation, database)
+	if database == "" {
+		message = operation
+	}
+
+	_, err := l.db.Exec(query, timestamp, level, operation, message, detailsJSON, connectionID)
+	if err != nil {
+		fmt.Fprintf(l.logFile, "[ERROR] Failed to write SQL operation log: %v\n", err)
+	}
+
+	// Trim old logs if exceeding the maximum limit
+	l.trimLogs()
+
+	// Also write to log file
+	logLine := fmt.Sprintf("[%s] [%s] [%s] %s | sql: %s | rows_affected: %d\n",
+		timestamp.Format("2006-01-02 15:04:05"),
+		level,
+		operation,
+		message,
+		sqlText,
+		rowsAffected,
+	)
+	l.logFile.WriteString(logLine)
+}
+
+// ClearLogs clears all operation logs from the database
+func (l *Logger) ClearLogs() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	_, err := l.db.Exec("DELETE FROM operation_logs")
+	if err != nil {
+		return fmt.Errorf("failed to clear operation logs: %w", err)
+	}
+
+	return nil
+}
+
+// ClearLogsByConnection clears operation logs for a specific connection
+func (l *Logger) ClearLogsByConnection(connectionID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	_, err := l.db.Exec("DELETE FROM operation_logs WHERE connection_id = ?", connectionID)
+	if err != nil {
+		return fmt.Errorf("failed to clear operation logs for connection: %w", err)
+	}
+
+	return nil
+}
+
+// GetLogCount returns the total number of log entries
+func (l *Logger) GetLogCount() (int64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var count int64
+	err := l.db.QueryRow("SELECT COUNT(*) FROM operation_logs").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get log count: %w", err)
+	}
+
+	return count, nil
+}
+
+// LogMongoOperation records a MongoDB operation for audit purposes
+func (l *Logger) LogMongoOperation(operation, dbType, database, collection, operationDetail, connectionID string, success bool, errMsg string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	timestamp := time.Now()
+	level := "INFO"
+	if !success {
+		level = "ERROR"
+	}
+
+	details := map[string]interface{}{
+		"db_type":    dbType,
+		"database":   database,
+		"collection": collection,
+		"detail":     operationDetail,
+		"success":    success,
+	}
+	if errMsg != "" {
+		details["error"] = errMsg
+	}
+
+	detailsJSON := ""
+	if detailsBytes, err := json.Marshal(details); err == nil {
+		detailsJSON = string(detailsBytes)
+	}
+
+	query := `
+	INSERT INTO operation_logs (timestamp, level, operation, message, details, connection_id)
+	VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	message := fmt.Sprintf("%s on %s.%s", operation, database, collection)
+	if database == "" {
+		message = operation
+	}
+
+	_, err := l.db.Exec(query, timestamp, level, operation, message, detailsJSON, connectionID)
+	if err != nil {
+		fmt.Fprintf(l.logFile, "[ERROR] Failed to write MongoDB operation log: %v\n", err)
+	}
+
+	// Trim old logs if exceeding the maximum limit
+	l.trimLogs()
+
+	// Also write to log file
+	logLine := fmt.Sprintf("[%s] [%s] [%s] %s | detail: %s\n",
+		timestamp.Format("2006-01-02 15:04:05"),
+		level,
+		operation,
+		message,
+		operationDetail,
+	)
+	l.logFile.WriteString(logLine)
 }
 
 // Close closes the logger and releases resources

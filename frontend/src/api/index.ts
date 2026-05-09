@@ -221,14 +221,24 @@ export const ImportExportAPI = {
  */
 export const LogAPI = {
   async getLogs(filter: LogFilter): Promise<LogEntry[]> {
-    // 日志功能暂未实现
-    console.warn('日志功能暂未实现');
-    return [];
+    return wailsCall(() => App.GetOperationLogs(filter as any) as Promise<any>, 'GetOperationLogs');
+  },
+
+  async clearLogs(): Promise<void> {
+    return wailsCall(() => App.ClearOperationLogs(), 'ClearOperationLogs');
+  },
+
+  async clearLogsByConnection(connectionId: string): Promise<void> {
+    return wailsCall(() => App.ClearOperationLogsByConnection(connectionId), 'ClearOperationLogsByConnection');
+  },
+
+  async getLogCount(): Promise<number> {
+    return wailsCall(() => App.GetOperationLogCount() as Promise<any>, 'GetOperationLogCount');
   },
 
   async exportLogs(startTime: string, endTime: string): Promise<string> {
-    // 日志功能暂未实现
-    console.warn('日志功能暂未实现');
+    // 日志导出功能暂未实现
+    console.warn('日志导出功能暂未实现');
     return '';
   },
 };

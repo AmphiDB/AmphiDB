@@ -16,6 +16,10 @@ export function CancelQuery(arg1:string,arg2:string):Promise<void>;
 
 export function ClearExecutionLog(arg1:string,arg2:string):Promise<void>;
 
+export function ClearOperationLogs():Promise<void>;
+
+export function ClearOperationLogsByConnection(arg1:string):Promise<void>;
+
 export function ClearQueryHistory(arg1:string):Promise<void>;
 
 export function ClearSlowQueryLog(arg1:string):Promise<void>;
@@ -65,6 +69,10 @@ export function GetCreateTableDDL(arg1:string,arg2:string,arg3:string):Promise<s
 export function GetExecutionLog(arg1:string,arg2:string,arg3:number):Promise<Array<types.ExecutionLogEntry>>;
 
 export function GetMonitoringSnapshot(arg1:string,arg2:string):Promise<types.MonitoringSnapshot>;
+
+export function GetOperationLogCount():Promise<number>;
+
+export function GetOperationLogs(arg1:types.LogFilter):Promise<Array<types.LogEntry>>;
 
 export function GetQueryHistory(arg1:string,arg2:number):Promise<Array<storage.QueryHistoryEntry>>;
 

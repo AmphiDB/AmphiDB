@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import MonitoringTab from '../components/logs/MonitoringTab.vue'
 import SlowQueryTab from '../components/logs/SlowQueryTab.vue'
+import OperationLogTab from '../components/logs/OperationLogTab.vue'
 </script>
 
 <template>
@@ -14,6 +15,11 @@ import SlowQueryTab from '../components/logs/SlowQueryTab.vue'
       <!-- 慢查询日志 -->
       <el-tab-pane label="慢查询日志">
         <SlowQueryTab />
+      </el-tab-pane>
+
+      <!-- 操作日志 -->
+      <el-tab-pane label="操作日志">
+        <OperationLogTab />
       </el-tab-pane>
     </el-tabs>
   </div>

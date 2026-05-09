@@ -156,8 +156,12 @@ func (a *App) MongoCreateCollection(profileID string, dbName string, collName st
 	}
 	if err := manager.CreateCollection(context.Background(), dbName, collName); err != nil {
 		a.logger.Error("MongoCreateCollection failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("CREATE_COLLECTION", "mongodb", dbName, collName, fmt.Sprintf("db.createCollection('%s')", collName), profileID, false, err.Error())
 		return err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("CREATE_COLLECTION", "mongodb", dbName, collName, fmt.Sprintf("db.createCollection('%s')", collName), profileID, true, "")
 	return nil
 }
 
@@ -171,8 +175,12 @@ func (a *App) MongoDropCollection(profileID string, dbName string, collName stri
 	}
 	if err := manager.DropCollection(context.Background(), dbName, collName); err != nil {
 		a.logger.Error("MongoDropCollection failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("DROP_COLLECTION", "mongodb", dbName, collName, fmt.Sprintf("db.%s.drop()", collName), profileID, false, err.Error())
 		return err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("DROP_COLLECTION", "mongodb", dbName, collName, fmt.Sprintf("db.%s.drop()", collName), profileID, true, "")
 	return nil
 }
 
@@ -189,8 +197,18 @@ func (a *App) MongoQueryDocuments(profileID string, params types.MongoQueryParam
 	result, err := manager.QueryDocuments(context.Background(), params)
 	if err != nil {
 		a.logger.Error("MongoQueryDocuments failed", err, nil)
+		// 记录失败的 MongoDB 查询操作
+		detail := fmt.Sprintf("db.%s.find(%s)", params.Collection, params.Filter)
+		a.logger.LogMongoOperation("QUERY_DOCUMENTS", "mongodb", params.Database, params.Collection, detail, profileID, false, err.Error())
 		return nil, err
 	}
+	// 记录成功的 MongoDB 查询操作
+	totalDocs := int64(0)
+	if result != nil {
+		totalDocs = result.Total
+	}
+	detail := fmt.Sprintf("db.%s.find(%s) => %d documents", params.Collection, params.Filter, totalDocs)
+	a.logger.LogMongoOperation("QUERY_DOCUMENTS", "mongodb", params.Database, params.Collection, detail, profileID, true, "")
 	return result, nil
 }
 
@@ -205,8 +223,12 @@ func (a *App) MongoInsertDocument(profileID string, dbName string, collName stri
 	id, err := manager.InsertDocument(context.Background(), dbName, collName, jsonDoc)
 	if err != nil {
 		a.logger.Error("MongoInsertDocument failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("INSERT_DOCUMENT", "mongodb", dbName, collName, fmt.Sprintf("db.%s.insertOne(...)", collName), profileID, false, err.Error())
 		return "", err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("INSERT_DOCUMENT", "mongodb", dbName, collName, fmt.Sprintf("db.%s.insertOne(...) => _id: %s", collName, id), profileID, true, "")
 	return id, nil
 }
 
@@ -220,8 +242,12 @@ func (a *App) MongoUpdateDocument(profileID string, dbName string, collName stri
 	}
 	if err := manager.UpdateDocument(context.Background(), dbName, collName, docID, jsonDoc); err != nil {
 		a.logger.Error("MongoUpdateDocument failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("UPDATE_DOCUMENT", "mongodb", dbName, collName, fmt.Sprintf("db.%s.updateOne({_id: '%s'}, ...)", collName, docID), profileID, false, err.Error())
 		return err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("UPDATE_DOCUMENT", "mongodb", dbName, collName, fmt.Sprintf("db.%s.updateOne({_id: '%s'}, ...)", collName, docID), profileID, true, "")
 	return nil
 }
 
@@ -236,8 +262,12 @@ func (a *App) MongoDeleteDocuments(profileID string, dbName string, collName str
 	deleted, err := manager.DeleteDocuments(context.Background(), dbName, collName, docIDs)
 	if err != nil {
 		a.logger.Error("MongoDeleteDocuments failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("DELETE_DOCUMENTS", "mongodb", dbName, collName, fmt.Sprintf("db.%s.deleteMany({_id: {$in: [...]}}) (%d docs)", collName, len(docIDs)), profileID, false, err.Error())
 		return 0, err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("DELETE_DOCUMENTS", "mongodb", dbName, collName, fmt.Sprintf("db.%s.deleteMany({_id: {$in: [...]}}) => deleted: %d", collName, deleted), profileID, true, "")
 	return deleted, nil
 }
 
@@ -270,8 +300,12 @@ func (a *App) MongoCreateIndex(profileID string, dbName string, collName string,
 	name, err := manager.CreateIndex(context.Background(), dbName, collName, spec)
 	if err != nil {
 		a.logger.Error("MongoCreateIndex failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("CREATE_INDEX", "mongodb", dbName, collName, fmt.Sprintf("db.%s.createIndex(...) => %s", collName, name), profileID, false, err.Error())
 		return "", err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("CREATE_INDEX", "mongodb", dbName, collName, fmt.Sprintf("db.%s.createIndex(...) => %s", collName, name), profileID, true, "")
 	return name, nil
 }
 
@@ -285,8 +319,12 @@ func (a *App) MongoDropIndex(profileID string, dbName string, collName string, i
 	}
 	if err := manager.DropIndex(context.Background(), dbName, collName, indexName); err != nil {
 		a.logger.Error("MongoDropIndex failed", err, nil)
+		// 记录失败的 MongoDB 操作
+		a.logger.LogMongoOperation("DROP_INDEX", "mongodb", dbName, collName, fmt.Sprintf("db.%s.dropIndex('%s')", collName, indexName), profileID, false, err.Error())
 		return err
 	}
+	// 记录成功的 MongoDB 操作
+	a.logger.LogMongoOperation("DROP_INDEX", "mongodb", dbName, collName, fmt.Sprintf("db.%s.dropIndex('%s')", collName, indexName), profileID, true, "")
 	return nil
 }
 
@@ -314,8 +352,14 @@ func (a *App) MongoRunAggregation(profileID string, dbName string, collName stri
 	a.checkAndLogMongoSlowQuery(profileID, dbName, collName, pipelineJSON, execTimeMs, err)
 	if err != nil {
 		a.logger.Error("MongoRunAggregation failed", err, nil)
+		// 记录失败的 MongoDB 聚合操作
+		detail := fmt.Sprintf("db.%s.aggregate(%s)", collName, pipelineJSON)
+		a.logger.LogMongoOperation("AGGREGATE", "mongodb", dbName, collName, detail, profileID, false, err.Error())
 		return nil, err
 	}
+	// 记录成功的 MongoDB 聚合操作
+	detail := fmt.Sprintf("db.%s.aggregate(%s) => %dms", collName, pipelineJSON, execTimeMs)
+	a.logger.LogMongoOperation("AGGREGATE", "mongodb", dbName, collName, detail, profileID, true, "")
 	return result, nil
 }
 

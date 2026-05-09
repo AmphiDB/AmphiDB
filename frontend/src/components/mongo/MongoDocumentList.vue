@@ -113,6 +113,7 @@
       <div class="doc-dialog-toolbar">
         <span class="doc-dialog-hint">点击 ▶/▼ 折叠/展开节点</span>
         <div class="doc-dialog-actions">
+          <el-button size="small" @click="copyDocJson">复制 JSON</el-button>
           <el-button size="small" @click="expandAll">全部展开</el-button>
           <el-button size="small" @click="collapseAll">全部折叠</el-button>
         </div>
@@ -162,6 +163,17 @@ const openDocDialog = (row: TableRow) => {
   dialogCollapseDepth.value = 2
   dialogTreeKey.value++
   docDialogVisible.value = true
+}
+
+const copyDocJson = async () => {
+  if (dialogDocParsed.value === null) return
+  try {
+    const jsonStr = JSON.stringify(dialogDocParsed.value, null, 2)
+    await navigator.clipboard.writeText(jsonStr)
+    ElMessage.success('JSON 已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
 }
 
 const expandAll = () => { dialogCollapseDepth.value = 999; dialogTreeKey.value++ }

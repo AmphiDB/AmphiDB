@@ -18,6 +18,14 @@ export function ClearExecutionLog(arg1, arg2) {
   return window['go']['backend']['App']['ClearExecutionLog'](arg1, arg2);
 }
 
+export function ClearOperationLogs() {
+  return window['go']['backend']['App']['ClearOperationLogs']();
+}
+
+export function ClearOperationLogsByConnection(arg1) {
+  return window['go']['backend']['App']['ClearOperationLogsByConnection'](arg1);
+}
+
 export function ClearQueryHistory(arg1) {
   return window['go']['backend']['App']['ClearQueryHistory'](arg1);
 }
@@ -116,6 +124,14 @@ export function GetExecutionLog(arg1, arg2, arg3) {
 
 export function GetMonitoringSnapshot(arg1, arg2) {
   return window['go']['backend']['App']['GetMonitoringSnapshot'](arg1, arg2);
+}
+
+export function GetOperationLogCount() {
+  return window['go']['backend']['App']['GetOperationLogCount']();
+}
+
+export function GetOperationLogs(arg1) {
+  return window['go']['backend']['App']['GetOperationLogs'](arg1);
 }
 
 export function GetQueryHistory(arg1, arg2) {

@@ -394,7 +394,7 @@ const handleDatabaseChange = async (database: string) => {
 
 // 执行查询
 const executeQuery = async () => {
-  const sql = sqlText.value.trim()
+  let sql = sqlText.value.trim()
   if (!sql) {
     ElMessage.warning('请输入 SQL 语句')
     return
@@ -403,6 +403,12 @@ const executeQuery = async () => {
   if (!props.profileId) {
     ElMessage.error('未选择数据库连接')
     return
+  }
+
+  // 如果是SELECT查询且没有LIMIT子句，默认添加LIMIT 20
+  const upperSql = sql.toUpperCase()
+  if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
+    sql = sql.replace(/;?\s*$/, '') + ' LIMIT 20'
   }
 
   executing.value = true

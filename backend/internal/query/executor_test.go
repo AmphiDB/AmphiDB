@@ -56,7 +56,7 @@ func TestExecutor_DetermineQueryType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := executor.determineQueryType(tt.query)
+			result := executor.DetermineQueryType(tt.query)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -327,10 +327,10 @@ func TestExecutor_ParseError(t *testing.T) {
 	defer db.Close()
 
 	tests := []struct {
-		name          string
-		err           error
-		expectedMsg   string
-		expectedCode  int
+		name         string
+		err          error
+		expectedMsg  string
+		expectedCode int
 	}{
 		{
 			"generic error",
@@ -405,7 +405,7 @@ func TestExecutor_ExecuteSelectWithNullValues(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, QueryTypeSelect, result.Type)
 	assert.Len(t, result.Rows, 3)
-	
+
 	// Check NULL values are properly handled
 	assert.Nil(t, result.Rows[0][2]) // email is NULL
 	assert.Nil(t, result.Rows[1][1]) // name is NULL
@@ -533,10 +533,10 @@ func TestExecutor_ExecuteMultipleDMLStatements(t *testing.T) {
 	defer db.Close()
 
 	tests := []struct {
-		name          string
-		query         string
-		rowsAffected  int64
-		expectedType  QueryType
+		name         string
+		query        string
+		rowsAffected int64
+		expectedType QueryType
 	}{
 		{
 			"Bulk insert",
@@ -615,7 +615,7 @@ func TestExecutor_QueryIDGeneration(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.NotEmpty(t, result.ID)
-	
+
 	// Verify ID is a valid UUID format (36 characters with hyphens)
 	assert.Len(t, result.ID, 36)
 	assert.Contains(t, result.ID, "-")

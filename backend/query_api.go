@@ -34,11 +34,19 @@ func (a *App) ExecuteQueryInDatabase(profileID, database, sql string) (*query.Qu
 		if result.Error == nil {
 			result.Error = &query.QueryError{Code: -1, Message: fmt.Sprintf("执行查询失败: %v", err), Position: -1}
 		}
+		// 记录失败的 SQL 操作
+		queryType := executor.DetermineQueryType(sql)
+		a.logger.LogSQLOperation(string(queryType), sql, database, profileID, 0, false, err.Error())
 		return result, nil
 	}
 
 	a.saveQueryHistory(profileID, database, sql, result)
 	a.checkAndLogSlowQuery(profileID, database, sql, result)
+
+	// 记录成功的 SQL 操作
+	queryType := executor.DetermineQueryType(sql)
+	a.logger.LogSQLOperation(string(queryType), sql, database, profileID, result.RowsAffected, true, "")
+
 	return result, nil
 }
 
@@ -91,6 +99,9 @@ func (a *App) ExecuteQuery(profileID, sql string) (*query.QueryResult, error) {
 				Position: -1,
 			}
 		}
+		// 记录失败的 SQL 操作
+		queryType := executor.DetermineQueryType(sql)
+		a.logger.LogSQLOperation(string(queryType), sql, "", profileID, 0, false, err.Error())
 		return result, nil
 	}
 
@@ -104,6 +115,10 @@ func (a *App) ExecuteQuery(profileID, sql string) (*query.QueryResult, error) {
 	// 保存查询历史
 	a.saveQueryHistory(profileID, "", sql, result)
 	a.checkAndLogSlowQuery(profileID, "", sql, result)
+
+	// 记录成功的 SQL 操作
+	queryType := executor.DetermineQueryType(sql)
+	a.logger.LogSQLOperation(string(queryType), sql, "", profileID, result.RowsAffected, true, "")
 
 	return result, nil
 }
@@ -160,6 +175,9 @@ func (a *App) ExecuteQueryWithTimeout(profileID, sql string, timeoutSeconds int)
 				Position: -1,
 			}
 		}
+		// 记录失败的 SQL 操作
+		queryType := executor.DetermineQueryType(sql)
+		a.logger.LogSQLOperation(string(queryType), sql, "", profileID, 0, false, err.Error())
 		return result, nil
 	}
 
@@ -173,6 +191,10 @@ func (a *App) ExecuteQueryWithTimeout(profileID, sql string, timeoutSeconds int)
 	// 保存查询历史
 	a.saveQueryHistory(profileID, "", sql, result)
 	a.checkAndLogSlowQuery(profileID, "", sql, result)
+
+	// 记录成功的 SQL 操作
+	queryType := executor.DetermineQueryType(sql)
+	a.logger.LogSQLOperation(string(queryType), sql, "", profileID, result.RowsAffected, true, "")
 
 	return result, nil
 }

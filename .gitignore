@@ -7,3 +7,6 @@ frontend/dist
 # frontend/wailsjs/go/backend/App.d.ts
 .cursor
 .vscode
+.idea
+.DS_Store
+.kiro

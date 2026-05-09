@@ -19,7 +19,7 @@ func (a *App) QueryData(profileID string, query repository.DataQuery) (*reposito
 		})
 		return nil, fmt.Errorf("查询数据失败: %w", err)
 	}
-	
+
 	result, err := manager.QueryData(query)
 	if err != nil {
 		a.logger.Error("Failed to query data", err, map[string]interface{}{
@@ -29,14 +29,14 @@ func (a *App) QueryData(profileID string, query repository.DataQuery) (*reposito
 		})
 		return nil, fmt.Errorf("查询数据失败: %w", err)
 	}
-	
+
 	a.logger.Debug("Data queried", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   query.Database,
 		"table":      query.Table,
 		"rows":       len(result.Rows),
 	})
-	
+
 	return result, nil
 }
 
@@ -51,7 +51,7 @@ func (a *App) GetRowCount(profileID, database, table string, filters []repositor
 		})
 		return 0, fmt.Errorf("获取行数失败: %w", err)
 	}
-	
+
 	count, err := manager.GetRowCount(database, table, filters)
 	if err != nil {
 		a.logger.Error("Failed to get row count", err, map[string]interface{}{
@@ -61,7 +61,7 @@ func (a *App) GetRowCount(profileID, database, table string, filters []repositor
 		})
 		return 0, fmt.Errorf("获取行数失败: %w", err)
 	}
-	
+
 	return count, nil
 }
 
@@ -76,13 +76,13 @@ func (a *App) InsertRow(profileID, database, table string, data map[string]inter
 		})
 		return fmt.Errorf("插入数据失败: %w", err)
 	}
-	
+
 	a.logger.Info("Inserting row", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   database,
 		"table":      table,
 	})
-	
+
 	err = manager.InsertRow(database, table, data)
 	if err != nil {
 		a.logger.Error("Failed to insert row", err, map[string]interface{}{
@@ -90,22 +90,27 @@ func (a *App) InsertRow(profileID, database, table string, data map[string]inter
 			"database":   database,
 			"table":      table,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("INSERT", fmt.Sprintf("INSERT INTO `%s`.`%s` ...", database, table), database, profileID, 0, false, err.Error())
 		return fmt.Errorf("插入数据失败: %w", err)
 	}
-	
+
 	a.logger.Info("Row inserted successfully", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   database,
 		"table":      table,
 	})
-	
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("INSERT", fmt.Sprintf("INSERT INTO `%s`.`%s` ...", database, table), database, profileID, 1, true, "")
+
 	// 发送事件通知前端
 	a.emitEvent("data:row:inserted", map[string]interface{}{
 		"profileId": profileID,
 		"database":  database,
 		"table":     table,
 	})
-	
+
 	return nil
 }
 
@@ -120,13 +125,13 @@ func (a *App) UpdateRow(profileID, database, table string, pk map[string]interfa
 		})
 		return fmt.Errorf("更新数据失败: %w", err)
 	}
-	
+
 	a.logger.Info("Updating row", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   database,
 		"table":      table,
 	})
-	
+
 	err = manager.UpdateRow(database, table, pk, data)
 	if err != nil {
 		a.logger.Error("Failed to update row", err, map[string]interface{}{
@@ -134,22 +139,27 @@ func (a *App) UpdateRow(profileID, database, table string, pk map[string]interfa
 			"database":   database,
 			"table":      table,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("UPDATE", fmt.Sprintf("UPDATE `%s`.`%s` SET ... WHERE ...", database, table), database, profileID, 0, false, err.Error())
 		return fmt.Errorf("更新数据失败: %w", err)
 	}
-	
+
 	a.logger.Info("Row updated successfully", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   database,
 		"table":      table,
 	})
-	
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("UPDATE", fmt.Sprintf("UPDATE `%s`.`%s` SET ... WHERE ...", database, table), database, profileID, 1, true, "")
+
 	// 发送事件通知前端
 	a.emitEvent("data:row:updated", map[string]interface{}{
 		"profileId": profileID,
 		"database":  database,
 		"table":     table,
 	})
-	
+
 	return nil
 }
 
@@ -164,14 +174,14 @@ func (a *App) DeleteRows(profileID, database, table string, pks []map[string]int
 		})
 		return 0, fmt.Errorf("删除数据失败: %w", err)
 	}
-	
+
 	a.logger.Info("Deleting rows", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   database,
 		"table":      table,
 		"count":      len(pks),
 	})
-	
+
 	deleted, err := manager.DeleteRows(database, table, pks)
 	if err != nil {
 		a.logger.Error("Failed to delete rows", err, map[string]interface{}{
@@ -179,16 +189,21 @@ func (a *App) DeleteRows(profileID, database, table string, pks []map[string]int
 			"database":   database,
 			"table":      table,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("DELETE", fmt.Sprintf("DELETE FROM `%s`.`%s` WHERE ...", database, table), database, profileID, 0, false, err.Error())
 		return deleted, fmt.Errorf("删除数据失败: %w", err)
 	}
-	
+
 	a.logger.Info("Rows deleted successfully", map[string]interface{}{
 		"profile_id": profileID,
 		"database":   database,
 		"table":      table,
 		"deleted":    deleted,
 	})
-	
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("DELETE", fmt.Sprintf("DELETE FROM `%s`.`%s` (%d rows)", database, table, deleted), database, profileID, deleted, true, "")
+
 	// 发送事件通知前端
 	a.emitEvent("data:rows:deleted", map[string]interface{}{
 		"profileId": profileID,
@@ -196,6 +211,6 @@ func (a *App) DeleteRows(profileID, database, table string, pks []map[string]int
 		"table":     table,
 		"count":     deleted,
 	})
-	
+
 	return deleted, nil
 }

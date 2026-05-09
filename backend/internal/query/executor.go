@@ -81,7 +81,7 @@ func (e *Executor) ExecuteWithTimeout(sqlQuery string, timeout time.Duration) (*
 	}
 
 	// Determine query type
-	queryType := e.determineQueryType(sqlQuery)
+	queryType := e.DetermineQueryType(sqlQuery)
 	result.Type = queryType
 
 	// Execute based on query type
@@ -200,8 +200,8 @@ func (e *Executor) executeDDL(ctx context.Context, sqlQuery string, result *Quer
 	return nil
 }
 
-// determineQueryType determines the type of SQL query
-func (e *Executor) determineQueryType(sqlQuery string) QueryType {
+// DetermineQueryType determines the type of SQL query
+func (e *Executor) DetermineQueryType(sqlQuery string) QueryType {
 	trimmed := strings.TrimSpace(sqlQuery)
 	upper := strings.ToUpper(trimmed)
 
@@ -333,7 +333,7 @@ func (e *Executor) ExecuteInDatabaseWithTimeout(database, sqlQuery string, timeo
 	}
 
 	// Determine query type and execute
-	queryType := e.determineQueryType(sqlQuery)
+	queryType := e.DetermineQueryType(sqlQuery)
 	result.Type = queryType
 
 	switch queryType {

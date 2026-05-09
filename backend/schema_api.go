@@ -128,6 +128,8 @@ func (a *App) CreateTable(profileID, database string, tableSchema schema.TableSc
 			"database":   database,
 			"table":      tableSchema.Name,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("CREATE TABLE", fmt.Sprintf("CREATE TABLE `%s`.`%s` ...", database, tableSchema.Name), database, profileID, 0, false, err.Error())
 		return fmt.Errorf("创建表失败: %w", err)
 	}
 
@@ -136,6 +138,9 @@ func (a *App) CreateTable(profileID, database string, tableSchema schema.TableSc
 		"database":   database,
 		"table":      tableSchema.Name,
 	})
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("CREATE TABLE", fmt.Sprintf("CREATE TABLE `%s`.`%s` ...", database, tableSchema.Name), database, profileID, 0, true, "")
 
 	// 发送事件通知前端
 	a.emitEvent("schema:table:created", map[string]interface{}{
@@ -202,6 +207,8 @@ func (a *App) AlterTable(profileID, database, table string, newSchema schema.Tab
 			"database":   database,
 			"table":      table,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("ALTER TABLE", fmt.Sprintf("ALTER TABLE `%s`.`%s` (%d changes)", database, table, len(changes)), database, profileID, 0, false, err.Error())
 		return fmt.Errorf("修改表结构失败: %w", err)
 	}
 
@@ -210,6 +217,9 @@ func (a *App) AlterTable(profileID, database, table string, newSchema schema.Tab
 		"database":   database,
 		"table":      table,
 	})
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("ALTER TABLE", fmt.Sprintf("ALTER TABLE `%s`.`%s` (%d changes)", database, table, len(changes)), database, profileID, 0, true, "")
 
 	// 发送事件通知前端
 	a.emitEvent("schema:table:altered", map[string]interface{}{
@@ -265,6 +275,8 @@ func (a *App) AlterTableForce(profileID, database, table string, newSchema schem
 			"database":   database,
 			"table":      table,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("ALTER TABLE", fmt.Sprintf("ALTER TABLE `%s`.`%s` (force, %d changes)", database, table, len(changes)), database, profileID, 0, false, err.Error())
 		return fmt.Errorf("修改表结构失败: %w", err)
 	}
 
@@ -273,6 +285,9 @@ func (a *App) AlterTableForce(profileID, database, table string, newSchema schem
 		"database":   database,
 		"table":      table,
 	})
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("ALTER TABLE", fmt.Sprintf("ALTER TABLE `%s`.`%s` (force, %d changes)", database, table, len(changes)), database, profileID, 0, true, "")
 
 	// 发送事件通知前端
 	a.emitEvent("schema:table:altered", map[string]interface{}{
@@ -309,6 +324,8 @@ func (a *App) DropTable(profileID, database, table string) error {
 			"database":   database,
 			"table":      table,
 		})
+		// 记录失败的 SQL 操作
+		a.logger.LogSQLOperation("DROP TABLE", fmt.Sprintf("DROP TABLE `%s`.`%s`", database, table), database, profileID, 0, false, err.Error())
 		return fmt.Errorf("删除表失败: %w", err)
 	}
 
@@ -317,6 +334,9 @@ func (a *App) DropTable(profileID, database, table string) error {
 		"database":   database,
 		"table":      table,
 	})
+
+	// 记录成功的 SQL 操作
+	a.logger.LogSQLOperation("DROP TABLE", fmt.Sprintf("DROP TABLE `%s`.`%s`", database, table), database, profileID, 0, true, "")
 
 	// 发送事件通知前端
 	a.emitEvent("schema:table:dropped", map[string]interface{}{
