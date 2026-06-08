@@ -2,7 +2,8 @@
   <el-dialog
     v-model="visible"
     title="导入数据"
-    width="700px"
+    width="min(920px, 92vw)"
+    class="import-dialog"
     :close-on-click-modal="false"
     @close="handleClose"
   >
@@ -23,6 +24,9 @@
       <!-- 文件格式 -->
       <el-form-item v-if="form.filePath" label="文件格式">
         <el-tag :type="formatTagType">{{ detectedFormat || '未知' }}</el-tag>
+        <el-text type="info" size="small" class="file-summary">
+          {{ fileName }}
+        </el-text>
         <el-text v-if="formatValidated" type="success" size="small" style="margin-left: 12px;">
           <el-icon><CircleCheck /></el-icon>
           格式验证通过
@@ -33,6 +37,15 @@
         </el-text>
       </el-form-item>
 
+      <el-alert
+        v-if="form.filePath"
+        title="大文件导入会在后台流式分批写入，确认列映射后即可启动；任务期间可以继续使用其他查询和表格。"
+        type="info"
+        show-icon
+        :closable="false"
+        class="import-hint"
+      />
+
       <!-- 列映射配置 (CSV 和 JSON) -->
       <el-form-item
         v-if="showMapping && tableColumns.length > 0"
@@ -40,6 +53,13 @@
         class="mapping-item"
       >
         <div class="mapping-container">
+          <div class="mapping-actions">
+            <el-button size="small" @click="autoMapColumns">自动匹配</el-button>
+            <el-button size="small" @click="resetMapping">重置映射</el-button>
+            <el-text size="small" type="info">
+              已映射 {{ mappedColumnCount }} / {{ fileColumns.length }}
+            </el-text>
+          </div>
           <div class="mapping-header">
             <span class="mapping-col">文件列</span>
             <span class="mapping-arrow"></span>
@@ -92,15 +112,30 @@
       </el-form-item>
 
       <!-- 导入进度 -->
-      <el-form-item v-if="importing" label="导入进度">
+      <el-form-item v-if="importing" label="启动状态">
         <el-progress
           :percentage="progress.percentage"
           :status="progress.status"
         />
         <div class="progress-info">
           <el-text size="small">
-            已导入 {{ progress.current }} / {{ progress.total }} 行
+            正在创建后台导入任务，完成后会在右上角提示
           </el-text>
+        </div>
+      </el-form-item>
+
+      <el-form-item v-if="lastTaskId" label="当前任务">
+        <div class="task-inline">
+          <span>{{ taskStatusText }}</span>
+          <el-button
+            v-if="taskRunning"
+            size="small"
+            type="danger"
+            link
+            @click="cancelCurrentTask"
+          >
+            停止
+          </el-button>
         </div>
       </el-form-item>
 
@@ -109,29 +144,29 @@
         <div class="result-container">
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item label="总行数">
-              {{ importResult.TotalRows }}
+              {{ resultValue('totalRows') }}
             </el-descriptions-item>
             <el-descriptions-item label="成功行数">
-              <el-text type="success">{{ importResult.SuccessRows }}</el-text>
+              <el-text type="success">{{ resultValue('successRows') }}</el-text>
             </el-descriptions-item>
             <el-descriptions-item label="失败行数">
-              <el-text :type="importResult.FailedRows > 0 ? 'danger' : 'info'">
-                {{ importResult.FailedRows }}
+              <el-text :type="resultValue('failedRows') > 0 ? 'danger' : 'info'">
+                {{ resultValue('failedRows') }}
               </el-text>
             </el-descriptions-item>
           </el-descriptions>
 
           <!-- 错误详情 -->
-          <div v-if="importResult.Errors && importResult.Errors.length > 0" class="error-details">
+          <div v-if="resultErrors.length > 0" class="error-details">
             <el-divider content-position="left">错误详情</el-divider>
             <el-scrollbar max-height="200px">
               <div
-                v-for="(error, index) in importResult.Errors"
+                v-for="(error, index) in resultErrors"
                 :key="index"
                 class="error-item"
               >
                 <el-text type="danger" size="small">
-                  第 {{ error.Row }} 行: {{ error.Message }}
+                  第 {{ error.row ?? error.Row }} 行: {{ error.message ?? error.Message }}
                 </el-text>
               </div>
             </el-scrollbar>
@@ -142,7 +177,7 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="handleClose" :disabled="importing">
+        <el-button @click="handleClose">
           {{ importResult ? '关闭' : '取消' }}
         </el-button>
         <el-button
@@ -152,7 +187,7 @@
           :loading="importing"
           :disabled="!canImport"
         >
-          {{ importing ? '导入中...' : '开始导入' }}
+          {{ importing ? '启动中...' : '后台导入' }}
         </el-button>
       </div>
     </template>
@@ -160,19 +195,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ElMessage, ElNotification } from 'element-plus';
 import { CircleCheck, CircleClose, Right, Delete, Plus } from '@element-plus/icons-vue';
 import {
-  ImportFromSQL,
-  ImportFromCSV,
-  ImportFromJSON,
+  StartImport,
+  CancelTransferTask,
   ValidateCSVFormat,
   ValidateJSONFormat,
   ValidateSQLFormat,
   OpenFileDialog,
 } from '../../wailsjs/go/backend/App';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { backend, importexport } from '../../wailsjs/go/models';
 import type { Column } from '../types/api';
 
@@ -210,6 +244,12 @@ const formatValidated = ref(false);
 const formatError = ref('');
 const importing = ref(false);
 const importResult = ref<importexport.ImportResult | null>(null);
+const activeImportTasks = new Set<string>();
+const lastTaskId = ref('');
+const taskRunning = ref(false);
+const taskStatusText = ref('');
+const fileName = computed(() => form.value.filePath.split(/[\\/]/).pop() || form.value.filePath);
+const mappedColumnCount = computed(() => form.value.mapping.TableColumns.filter(Boolean).length);
 
 const progress = ref({
   current: 0,
@@ -243,7 +283,18 @@ const canImport = computed(() => {
   }
   
   // CSV 和 JSON 需要至少一个映射
-  return form.value.mapping.TableColumns.some(col => col);
+  return mappedColumnCount.value > 0;
+});
+
+const resultValue = (key: 'totalRows' | 'successRows' | 'failedRows') => {
+  if (!importResult.value) return 0;
+  const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
+  return (importResult.value as any)[key] ?? (importResult.value as any)[pascalKey] ?? 0;
+};
+
+const resultErrors = computed(() => {
+  if (!importResult.value) return [];
+  return (importResult.value as any).errors ?? (importResult.value as any).Errors ?? [];
 });
 
 // 选择文件
@@ -332,16 +383,31 @@ const validateFormat = async (format: 'SQL' | 'CSV' | 'JSON', filePath: string) 
 const initializeMappingForCSV = () => {
   // 默认使用表的列名作为文件列名
   fileColumns.value = props.tableColumns.map(col => col.name);
-  form.value.mapping.FileColumns = [...fileColumns.value];
-  form.value.mapping.TableColumns = [...fileColumns.value];
+  resetMapping();
 };
 
 // 初始化 JSON 映射
 const initializeMappingForJSON = () => {
   // 默认使用表的列名作为文件列名
   fileColumns.value = props.tableColumns.map(col => col.name);
+  resetMapping();
+};
+
+const autoMapColumns = () => {
   form.value.mapping.FileColumns = [...fileColumns.value];
-  form.value.mapping.TableColumns = [...fileColumns.value];
+  form.value.mapping.TableColumns = fileColumns.value.map((fileCol) => {
+    const exact = props.tableColumns.find(col => col.name === fileCol);
+    if (exact) return exact.name;
+    const lower = fileCol.toLowerCase();
+    return props.tableColumns.find(col => col.name.toLowerCase() === lower)?.name || '';
+  });
+};
+
+const resetMapping = () => {
+  form.value.mapping.FileColumns = [...fileColumns.value];
+  form.value.mapping.TableColumns = fileColumns.value.map(fileCol => {
+    return props.tableColumns.some(col => col.name === fileCol) ? fileCol : '';
+  });
 };
 
 // 添加映射
@@ -375,94 +441,37 @@ const handleImport = async () => {
   };
 
   try {
-    // 监听进度事件
-    const progressHandler = (data: any) => {
-      if (
-        data.profileId === props.profileId &&
-        data.database === props.database &&
-        data.format === detectedFormat.value
-      ) {
-        progress.value.current = data.current;
-        progress.value.total = data.total;
-        progress.value.percentage = Math.round(data.percentage);
-      }
-    };
-
-    const completedHandler = (data: any) => {
-      if (
-        data.profileId === props.profileId &&
-        data.database === props.database &&
-        data.format === detectedFormat.value
-      ) {
-        progress.value.status = 'success';
-        progress.value.percentage = 100;
-      }
-    };
-
-    const failedHandler = (data: any) => {
-      if (
-        data.profileId === props.profileId &&
-        data.database === props.database &&
-        data.format === detectedFormat.value
-      ) {
-        progress.value.status = 'exception';
-        ElMessage.error(`导入失败: ${data.error}`);
-        importing.value = false;
-      }
-    };
-
-    EventsOn('import:progress', progressHandler);
-    EventsOn('import:completed', completedHandler);
-    EventsOn('import:failed', failedHandler);
-
-    // 准备映射数据
     const mapping = importexport.ColumnMapping.createFrom({
       FileColumns: fileColumns.value.filter((_, i) => form.value.mapping.TableColumns[i]),
       TableColumns: form.value.mapping.TableColumns.filter(col => col),
     });
 
-    // 调用相应的导入方法
-    let result: importexport.ImportResult;
-    
-    if (detectedFormat.value === 'SQL') {
-      result = await ImportFromSQL(props.profileId, props.database, form.value.filePath);
-    } else if (detectedFormat.value === 'CSV') {
-      result = await ImportFromCSV(
-        props.profileId,
-        props.database,
-        props.table,
-        form.value.filePath,
-        mapping
-      );
-    } else if (detectedFormat.value === 'JSON') {
-      result = await ImportFromJSON(
-        props.profileId,
-        props.database,
-        props.table,
-        form.value.filePath,
-        mapping
-      );
-    } else {
+    if (!detectedFormat.value) {
       throw new Error('不支持的文件格式');
     }
 
-    importResult.value = result;
-    
-    if (result.FailedRows === 0) {
-      ElMessage.success(`导入成功！共导入 ${result.SuccessRows} 行数据`);
-      emit('success');
-    } else {
-      ElMessage.warning(
-        `导入完成，成功 ${result.SuccessRows} 行，失败 ${result.FailedRows} 行`
-      );
-    }
-
-    // 清理事件监听器
-    setTimeout(() => {
-      EventsOff('import:progress');
-      EventsOff('import:completed');
-      EventsOff('import:failed');
-    }, 2000);
+    const taskId = await StartImport(
+      props.profileId,
+      props.database,
+      detectedFormat.value === 'SQL' ? '' : props.table,
+      detectedFormat.value,
+      form.value.filePath,
+      mapping
+    );
+    activeImportTasks.add(taskId);
+    lastTaskId.value = taskId;
+    taskRunning.value = true;
+    taskStatusText.value = '后台导入运行中';
+    progress.value.percentage = 100;
+    progress.value.status = 'success';
+    importing.value = false;
+    ElNotification.info({
+      title: '导入任务已开始',
+      message: `${fileName.value} 正在后台导入，完成后会通知你。`,
+      duration: 4500,
+    });
+    visible.value = false;
+    resetFormSoon();
   } catch (error: any) {
     console.error('Import failed:', error);
     progress.value.status = 'exception';
@@ -472,15 +481,102 @@ const handleImport = async () => {
   }
 };
 
+const cancelCurrentTask = async () => {
+  if (!lastTaskId.value) return;
+  try {
+    await CancelTransferTask(lastTaskId.value);
+    taskStatusText.value = '正在停止导入任务...';
+  } catch (error: any) {
+    ElMessage.error(`停止导入失败: ${error.message || error}`);
+  }
+};
+
+const matchesTask = (data: any) => {
+  return data?.taskId && activeImportTasks.has(data.taskId);
+};
+
+const eventUnlisteners: Array<() => void> = [];
+
+const resultFromEvent = (data: any): importexport.ImportResult => {
+  return importexport.ImportResult.createFrom(
+    data.result || {
+      TotalRows: data.totalRows ?? data.TotalRows ?? 0,
+      SuccessRows: data.successRows ?? data.SuccessRows ?? 0,
+      FailedRows: data.failedRows ?? data.FailedRows ?? 0,
+      Errors: data.errors ?? data.Errors ?? [],
+    }
+  );
+};
+
+onMounted(() => {
+  eventUnlisteners.push(
+    EventsOn('import:progress', (data: any) => {
+      if (!matchesTask(data)) return;
+      progress.value.current = data.current;
+      progress.value.total = data.total;
+      progress.value.percentage = Math.round(data.percentage);
+    })
+  );
+  eventUnlisteners.push(
+    EventsOn('import:completed', (data: any) => {
+      if (!matchesTask(data)) return;
+      activeImportTasks.delete(data.taskId);
+      taskRunning.value = false;
+      taskStatusText.value = '导入完成';
+      const result = resultFromEvent(data);
+      importResult.value = result;
+      emit('success');
+      const failedRows = (result as any).failedRows ?? (result as any).FailedRows ?? 0;
+      const successRows = (result as any).successRows ?? (result as any).SuccessRows ?? 0;
+      ElNotification({
+        type: failedRows > 0 ? 'warning' : 'success',
+        title: failedRows > 0 ? '导入完成，有失败行' : '导入完成',
+        message: `成功 ${successRows} 行，失败 ${failedRows} 行`,
+        duration: failedRows > 0 ? 0 : 6000,
+      });
+    })
+  );
+  eventUnlisteners.push(
+    EventsOn('import:failed', (data: any) => {
+      if (!matchesTask(data)) return;
+      activeImportTasks.delete(data.taskId);
+      taskRunning.value = false;
+      taskStatusText.value = '导入失败';
+      if (data.result) {
+        importResult.value = resultFromEvent(data);
+      }
+      ElNotification.error({
+        title: '导入失败',
+        message: data.error || '后台导入任务失败',
+        duration: 0,
+      });
+    })
+  );
+  eventUnlisteners.push(
+    EventsOn('import:cancelled', (data: any) => {
+      if (!matchesTask(data)) return;
+      activeImportTasks.delete(data.taskId);
+      taskRunning.value = false;
+      taskStatusText.value = '导入已停止';
+      if (data.result) {
+        importResult.value = resultFromEvent(data);
+      }
+    })
+  );
+});
+
+onUnmounted(() => {
+  eventUnlisteners.splice(0).forEach((off) => off());
+  activeImportTasks.clear();
+});
+
 // 关闭对话框
 const handleClose = () => {
-  if (importing.value) {
-    return;
-  }
-  
   visible.value = false;
-  
-  // 重置表单
+  resetFormSoon();
+};
+
+const resetFormSoon = () => {
   setTimeout(() => {
     form.value = {
       filePath: '',
@@ -518,6 +614,77 @@ watch(() => form.value.filePath, (newPath) => {
   }
 });
 </script>
+
+<style scoped>
+.import-dialog :deep(.el-dialog__body) {
+  padding-top: 12px;
+}
+
+.file-summary {
+  margin-left: 12px;
+}
+
+.import-hint {
+  margin: 0 0 16px;
+}
+
+.mapping-container {
+  width: 100%;
+}
+
+.mapping-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mapping-header,
+.mapping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.mapping-header {
+  margin-bottom: 6px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.mapping-row + .mapping-row {
+  margin-top: 6px;
+}
+
+.mapping-input,
+.mapping-select {
+  width: 100%;
+}
+
+.mapping-arrow-icon {
+  color: #909399;
+}
+
+.progress-info {
+  margin-top: 8px;
+}
+
+.task-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+</style>
 
 <style scoped>
 .mapping-item {

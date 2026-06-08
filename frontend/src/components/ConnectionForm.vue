@@ -2,7 +2,7 @@
   <el-dialog
     v-model="dialogVisible"
     :title="isEditMode ? '编辑连接' : '新建连接'"
-    width="600px"
+    width="min(720px, 90vw)"
     :close-on-click-modal="false"
     @close="handleClose"
   >

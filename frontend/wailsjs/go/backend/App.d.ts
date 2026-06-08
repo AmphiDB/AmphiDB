@@ -4,6 +4,7 @@ import {schema} from '../models';
 import {types} from '../models';
 import {query} from '../models';
 import {repository} from '../models';
+import {llm} from '../models';
 import {storage} from '../models';
 import {importexport} from '../models';
 import {backend} from '../models';
@@ -13,6 +14,8 @@ export function AlterTable(arg1:string,arg2:string,arg3:string,arg4:schema.Table
 export function AlterTableForce(arg1:string,arg2:string,arg3:string,arg4:schema.TableSchema):Promise<void>;
 
 export function CancelQuery(arg1:string,arg2:string):Promise<void>;
+
+export function CancelTransferTask(arg1:string):Promise<void>;
 
 export function ClearExecutionLog(arg1:string,arg2:string):Promise<void>;
 
@@ -60,6 +63,8 @@ export function ExportToJSON(arg1:string,arg2:string,arg3:string,arg4:repository
 
 export function ExportToSQL(arg1:string,arg2:string,arg3:string,arg4:repository.DataQuery,arg5:string):Promise<void>;
 
+export function GenerateSQLFromNaturalLanguage(arg1:llm.GenerateSQLRequest):Promise<llm.GenerateSQLResponse>;
+
 export function GenerateSyncScript(arg1:string,arg2:string,arg3:string,arg4:types.SchemaDiff):Promise<types.SyncScript>;
 
 export function GetConnectionStatus(arg1:string):Promise<string>;
@@ -67,6 +72,8 @@ export function GetConnectionStatus(arg1:string):Promise<string>;
 export function GetCreateTableDDL(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function GetExecutionLog(arg1:string,arg2:string,arg3:number):Promise<Array<types.ExecutionLogEntry>>;
+
+export function GetLLMConfig():Promise<llm.PublicConfig>;
 
 export function GetMonitoringSnapshot(arg1:string,arg2:string):Promise<types.MonitoringSnapshot>;
 
@@ -158,13 +165,21 @@ export function QueryData(arg1:string,arg2:repository.DataQuery):Promise<reposit
 
 export function SaveFileDialog(arg1:string,arg2:string,arg3:Array<backend.FileDialogFilter>):Promise<string>;
 
+export function SaveLLMConfig(arg1:llm.Config):Promise<llm.PublicConfig>;
+
 export function SaveQuery(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<number>;
 
 export function SetSlowQueryThreshold(arg1:string,arg2:number):Promise<void>;
 
+export function StartExport(arg1:string,arg2:string,arg3:string,arg4:string,arg5:repository.DataQuery,arg6:string):Promise<string>;
+
+export function StartImport(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:importexport.ColumnMapping):Promise<string>;
+
 export function SyncTableData(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 
 export function TestConnection(arg1:types.ConnectionProfile):Promise<void>;
+
+export function TestLLMConfig(arg1:llm.Config):Promise<void>;
 
 export function UpdateProfile(arg1:string,arg2:types.ConnectionProfile):Promise<void>;
 

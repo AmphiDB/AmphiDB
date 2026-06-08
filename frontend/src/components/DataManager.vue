@@ -2,24 +2,49 @@
   <div class="data-manager">
     <!-- 工具栏 -->
     <div class="toolbar">
-      <div class="toolbar-left">
-        <el-button type="primary" size="small" @click="showInsertDialog" :icon="Plus">插入</el-button>
-        <el-button type="danger" size="small" @click="handleDelete" :disabled="selectedRows.length === 0" :icon="Delete">
-          删除 ({{ selectedRows.length }})
-        </el-button>
-        <el-button size="small" @click="refreshData" :icon="Refresh">刷新</el-button>
+      <div class="toolbar-main">
+        <div class="toolbar-left">
+          <el-button type="primary" size="small" @click="showInsertDialog" :icon="Plus">插入</el-button>
+          <el-button size="small" @click="refreshData" :icon="Refresh">刷新</el-button>
+          <el-button size="small" @click="toggleFilter" :icon="Filter" :type="showFilter ? 'primary' : undefined" plain>
+            {{ showFilter ? '隐藏筛选' : '筛选' }}
+          </el-button>
+        </div>
+        <div class="toolbar-right">
+          <el-button size="small" @click="showExportDialog" :icon="Download">导出</el-button>
+          <el-button size="small" @click="showImportDialog" :icon="Upload">导入</el-button>
+          <el-button
+            size="small"
+            :type="selectedRows.length > 0 ? 'danger' : undefined"
+            :plain="selectedRows.length === 0"
+            @click="handleDelete"
+            :disabled="selectedRows.length === 0"
+            :icon="Delete"
+            class="delete-button"
+          >
+            删除选中<span v-if="selectedRows.length > 0"> {{ selectedRows.length }}</span>
+          </el-button>
+        </div>
       </div>
-      <div class="toolbar-right">
-        <el-button size="small" @click="toggleFilter" :icon="Filter">
-          {{ showFilter ? '隐藏筛选' : '显示筛选' }}
-        </el-button>
-        <el-button size="small" @click="showExportDialog" :icon="Download">导出</el-button>
-        <el-button size="small" @click="showImportDialog" :icon="Upload">导入</el-button>
+      <div class="toolbar-status">
+        <span class="table-name" :title="tableIdentity">{{ tableIdentity }}</span>
+        <span>{{ rowCountLabel }}</span>
+        <span>每页 {{ pageSize }}</span>
+        <span :class="{ active: selectedRows.length > 0 }">已选 {{ selectedRows.length }}</span>
+        <el-tag size="small" effect="plain" :type="queryStateType">{{ queryStateLabel }}</el-tag>
       </div>
     </div>
 
     <!-- SQL 输入栏 -->
     <div class="sql-bar">
+      <NaturalLanguageSqlBox
+        class="data-ai-box"
+        :profile-id="profileId"
+        :database="database"
+        :current-table="table"
+        placeholder="白话查询当前表，例如：查最近 7 天状态异常的数据"
+        @generated="applyGeneratedSql"
+      />
       <div class="sql-input-row">
         <!-- Custom SQL input with manual suggestion dropdown -->
         <div class="sql-input-wrap" ref="sqlWrapRef">
@@ -49,12 +74,13 @@
             </div>
           </div>
         </div>
-        <el-button type="primary" size="small" :loading="sqlLoading" @click="executeSql">执行</el-button>
         <el-button size="small" @click="resetSql">重置</el-button>
+        <el-button type="primary" size="small" :loading="sqlLoading" @click="executeSql">执行</el-button>
+        <span class="sql-command-hint">Ctrl+Enter 执行</span>
       </div>
       <div v-if="sqlError" class="sql-error">{{ sqlError }}</div>
       <div v-if="sqlMode && !sqlError" class="sql-hint">
-        自定义 SQL 模式 — 共 {{ totalRows }} 行
+        自定义 SQL 结果，共 {{ totalRows }} 行
         <el-button link size="small" @click="resetSql">退出</el-button>
       </div>
     </div>
@@ -130,8 +156,18 @@ import DataFilter from './DataFilter.vue';
 import DataInsertDialog from './DataInsertDialog.vue';
 import ExportDialog from './ExportDialog.vue';
 import ImportDialog from './ImportDialog.vue';
+import NaturalLanguageSqlBox from './NaturalLanguageSqlBox.vue';
 import { DataAPI, SchemaAPI, QueryAPI } from '../api';
 import type { Filter as FilterType, OrderBy, Column, ForeignKey, TableSchema } from '../types/api';
+import {
+  SQL_FUNCTIONS,
+  SQL_KEYWORDS,
+  extractTablesFromSql,
+  filterCompletionValues,
+  getCompletionContext,
+  preferredFieldTables,
+  tableForQualifier,
+} from '../utils/sqlCompletion';
 
 interface Props {
   profileId: string;
@@ -183,6 +219,29 @@ const filters = ref<FilterType[]>([]);
 const orderBy = ref<OrderBy[]>([]);
 const selectedRows = ref<any[]>([]);
 
+const tableIdentity = computed(() => `${props.database}.${props.table}`);
+const rowCountLabel = computed(() => sqlMode.value ? `结果 ${totalRows.value} 行` : `总行 ${totalRows.value}`);
+const queryStateLabel = computed(() => {
+  if (sqlMode.value) {
+    return 'SQL';
+  }
+  if (filters.value.length > 0) {
+    return `筛选 ${filters.value.length}`;
+  }
+  return '默认视图';
+});
+type QueryStateTagType = 'success' | 'warning' | 'info';
+
+const queryStateType = computed<QueryStateTagType>(() => {
+  if (sqlMode.value) {
+    return 'success';
+  }
+  if (filters.value.length > 0) {
+    return 'warning';
+  }
+  return 'info';
+});
+
 // 引用
 const gridRef = ref<any>(null);
 const filterRef = ref<any>(null);
@@ -194,6 +253,9 @@ const sqlWrapRef = ref<HTMLElement | null>(null)
 const sqlMode = ref(false)
 const sqlLoading = ref(false)
 const sqlError = ref('')
+let dataRequestToken = 0
+let schemaRequestToken = 0
+let sqlRequestToken = 0
 
 // Suggestion state
 const suggestItems = ref<SqlSuggestItem[]>([])
@@ -214,6 +276,9 @@ const resetSql = () => {
 }
 
 const executeSql = async () => {
+  const requestToken = ++sqlRequestToken
+  const requestProfileId = props.profileId
+  const requestDatabase = props.database
   let sql = sqlInput.value.trim()
   if (!sql) return
   suggestVisible.value = false
@@ -230,7 +295,8 @@ const executeSql = async () => {
   try {
     // Use the database-aware API to avoid "No database selected" errors
     const go = (window as any)['go']['backend']['App']
-    const result = await go.ExecuteQueryInDatabase(props.profileId, props.database, sql)
+    const result = await go.ExecuteQueryInDatabase(requestProfileId, requestDatabase, sql)
+    if (requestToken !== sqlRequestToken || requestDatabase !== props.database) return
     if (result?.error?.message || result?.Error?.Message) {
       sqlError.value = result?.error?.message || result?.Error?.Message
       sqlMode.value = false
@@ -240,46 +306,60 @@ const executeSql = async () => {
     dataRows.value = result?.rows || result?.Rows || []
     totalRows.value = (result?.rows || result?.Rows || []).length
   } catch (e: any) {
+    if (requestToken !== sqlRequestToken || requestDatabase !== props.database) return
     sqlError.value = e?.message || String(e)
     sqlMode.value = false
   } finally {
-    sqlLoading.value = false
+    if (requestToken === sqlRequestToken) {
+      sqlLoading.value = false
+    }
   }
 }
 
-// SQL keyword / function suggestions
-const SQL_KEYWORDS = [
-  'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN',
-  'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT JOIN',
-  'RIGHT JOIN', 'INNER JOIN', 'ON', 'AS', 'DISTINCT', 'INSERT INTO', 'UPDATE',
-  'SET', 'DELETE FROM', 'IS NULL', 'IS NOT NULL', 'ASC', 'DESC',
-]
+const applyGeneratedSql = (sql: string) => {
+  sqlInput.value = sql
+  sqlMode.value = false
+  sqlError.value = ''
+  suggestVisible.value = false
+  ElMessage.success('SQL 已生成，请确认后执行')
+}
 
-const SQL_FUNCTIONS = [
-  'COUNT(*)', 'COUNT(DISTINCT )', 'SUM()', 'AVG()', 'MIN()', 'MAX()',
-  'COALESCE()', 'IFNULL()', 'IF()', 'CONCAT()', 'SUBSTRING()', 'LENGTH()',
-  'TRIM()', 'UPPER()', 'LOWER()', 'NOW()', 'DATE()', 'YEAR()', 'MONTH()',
-  'DAY()', 'UNIX_TIMESTAMP()', 'FROM_UNIXTIME()', 'DATE_FORMAT()',
-  'ROUND()', 'FLOOR()', 'CEIL()', 'ABS()', 'CAST()', 'CONVERT()',
-  'JSON_EXTRACT()', 'JSON_UNQUOTE()',
-]
+interface SqlSuggestItem { value: string; meta: string; from?: number }
 
-interface SqlSuggestItem { value: string; meta: string }
+const availableTables = computed(() => [props.table]);
+const availableColumnsByTable = computed<Record<string, string[]>>(() => ({
+  [props.table]: tableColumns.value.length > 0 ? tableColumns.value.map(column => column.name) : columns.value,
+}));
 
-const buildSuggestions = (fragment: string): SqlSuggestItem[] => {
-  if (!fragment) return []
-  const up = fragment.toUpperCase()
-  const results: SqlSuggestItem[] = []
-  for (const col of columns.value) {
-    if (col.toUpperCase().includes(up)) results.push({ value: col, meta: '字段' })
+const buildSuggestions = (sqlBeforeCursor: string): SqlSuggestItem[] => {
+  const context = getCompletionContext(sqlBeforeCursor);
+  const tableRefs = extractTablesFromSql(sqlBeforeCursor);
+
+  if (context.type === 'table') {
+    return filterCompletionValues(availableTables.value, context.fragment)
+      .map((value: string) => ({ value, meta: '表', from: context.from }))
+      .slice(0, 20);
   }
-  for (const kw of SQL_KEYWORDS) {
-    if (kw.startsWith(up)) results.push({ value: kw, meta: '关键字' })
+
+  if (context.type === 'member') {
+    const tableName = tableForQualifier(context.qualifier, tableRefs) || props.table;
+    return filterCompletionValues(availableColumnsByTable.value[tableName] || [], context.fragment)
+      .map((value: string) => ({ value, meta: `${tableName} 字段`, from: context.from }))
+      .slice(0, 20);
   }
-  for (const fn of SQL_FUNCTIONS) {
-    if (fn.toUpperCase().startsWith(up)) results.push({ value: fn, meta: '函数' })
-  }
-  return results.slice(0, 20)
+
+  const preferredTables = preferredFieldTables(sqlBeforeCursor);
+  const fieldTables = preferredTables.length > 0 ? preferredTables : [props.table];
+  const fieldSuggestions = fieldTables.flatMap((tableName: string) => {
+    return filterCompletionValues(availableColumnsByTable.value[tableName] || [], context.fragment)
+      .map((value: string) => ({ value, meta: `${tableName} 字段`, from: context.from }));
+  });
+  const functionSuggestions = filterCompletionValues(SQL_FUNCTIONS, context.fragment)
+    .map((value: string) => ({ value, meta: 'SQL 函数', from: context.from }));
+  const keywordSuggestions = filterCompletionValues(SQL_KEYWORDS, context.fragment)
+    .map((value: string) => ({ value, meta: '关键字', from: context.from }));
+
+  return [...fieldSuggestions, ...functionSuggestions, ...keywordSuggestions].slice(0, 20);
 }
 
 // Get the word fragment before the cursor
@@ -293,9 +373,10 @@ const getFragment = (): { fragment: string; start: number } => {
 }
 
 const onSqlInput = () => {
-  const { fragment } = getFragment()
-  if (fragment.length >= 1) {
-    suggestItems.value = buildSuggestions(fragment)
+  const { fragment, start } = getFragment()
+  const sqlBeforeCursor = sqlInput.value.slice(0, start + fragment.length)
+  if (fragment.length >= 1 || /\.\s*$/.test(sqlBeforeCursor)) {
+    suggestItems.value = buildSuggestions(sqlBeforeCursor)
     suggestVisible.value = suggestItems.value.length > 0
     suggestIndex.value = -1
   } else {
@@ -342,10 +423,10 @@ const onSqlKeydown = (e: KeyboardEvent) => {
 const pickSuggest = (item: SqlSuggestItem) => {
   const el = sqlInputRef.value?.$el?.querySelector('input') as HTMLInputElement | null
   const pos = el?.selectionStart ?? sqlInput.value.length
-  const before = sqlInput.value.slice(0, pos)
+  const replaceFrom = item.from ?? pos
+  const before = sqlInput.value.slice(0, replaceFrom)
   const after = sqlInput.value.slice(pos)
-  // Replace the fragment before cursor with the suggestion
-  const replaced = before.replace(/([\w.*`]*)$/, item.value)
+  const replaced = before + item.value
   sqlInput.value = replaced + after
   closeSuggest()
   // Restore cursor after inserted text
@@ -362,8 +443,17 @@ const onSuggestSelect = (_item: SqlSuggestItem) => {}
 
 // 加载表结构
 const loadTableSchema = async () => {
+  const requestToken = ++schemaRequestToken
+  const requestProfileId = props.profileId
+  const requestDatabase = props.database
+  const requestTable = props.table
   try {
-    const schema = await SchemaAPI.getTableSchema(props.profileId, props.database, props.table);
+    const schema = await SchemaAPI.getTableSchema(requestProfileId, requestDatabase, requestTable);
+    if (
+      requestToken !== schemaRequestToken ||
+      requestDatabase !== props.database ||
+      requestTable !== props.table
+    ) return;
     tableSchema.value = schema;
     
     // 安全地处理可能为 null 的数组
@@ -381,6 +471,11 @@ const loadTableSchema = async () => {
       foreignKeys: foreignKeys.value.length
     });
   } catch (error: any) {
+    if (
+      requestToken !== schemaRequestToken ||
+      requestDatabase !== props.database ||
+      requestTable !== props.table
+    ) return;
     console.error('Failed to load table schema:', error);
     ElMessage.error(`加载表结构失败: ${error.message || error}`);
   }
@@ -388,27 +483,37 @@ const loadTableSchema = async () => {
 
 // 加载数据
 const loadData = async () => {
+  const requestToken = ++dataRequestToken
+  const requestProfileId = props.profileId
+  const requestDatabase = props.database
+  const requestTable = props.table
   loading.value = true;
 
   try {
     // 查询数据 - 注意：Wails 生成的类型使用大写开头的属性名
-    const result = await DataAPI.queryData(props.profileId, {
-      Database: props.database,
-      Table: props.table,
+    const result = await DataAPI.queryData(requestProfileId, {
+      Database: requestDatabase,
+      Table: requestTable,
       Columns: [],
       Filters: filters.value,
       OrderBy: orderBy.value,
       Limit: pageSize.value,
       Offset: (currentPage.value - 1) * pageSize.value,
     } as any);
+    if (
+      requestToken !== dataRequestToken ||
+      requestDatabase !== props.database ||
+      requestTable !== props.table
+    ) return;
 
-    // Wails 返回的属性名也是大写开头的
-    dataRows.value = result.Rows || [];
+    // Wails 返回的属性名在不同调用链里可能是大写或小写。
+    const normalizedResult = result as any;
+    dataRows.value = normalizedResult.rows || normalizedResult.Rows || [];
     // 只在 columns 为空时才从结果中设置（优先使用 schema 中的列名）
     if (columns.value.length === 0) {
-      columns.value = result.Columns || [];
+      columns.value = normalizedResult.columns || normalizedResult.Columns || [];
     }
-    totalRows.value = result.Total || 0;
+    totalRows.value = normalizedResult.total || normalizedResult.Total || 0;
     
     console.log('Data loaded:', {
       rows: dataRows.value.length,
@@ -416,10 +521,17 @@ const loadData = async () => {
       total: totalRows.value
     });
   } catch (error: any) {
+    if (
+      requestToken !== dataRequestToken ||
+      requestDatabase !== props.database ||
+      requestTable !== props.table
+    ) return;
     console.error('Failed to load data:', error);
     ElMessage.error(`加载数据失败: ${error.message || error}`);
   } finally {
-    loading.value = false;
+    if (requestToken === dataRequestToken) {
+      loading.value = false;
+    }
   }
 };
 
@@ -644,18 +756,74 @@ onMounted(() => {
 
 .toolbar {
   display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background-color: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  gap: 6px;
+}
+
+.toolbar-main {
+  display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-  padding: 12px;
-  background-color: #f5f7fa;
-  border-radius: 4px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .toolbar-left,
 .toolbar-right {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.delete-button {
+  margin-left: 2px;
+}
+
+.toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+  color: #606266;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.toolbar-status > span {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.toolbar-status > span + span::before {
+  content: '';
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  margin-right: 10px;
+  background-color: #dcdfe6;
+  vertical-align: -1px;
+}
+
+.toolbar-status .table-name {
+  max-width: 320px;
+  overflow: hidden;
+  color: #303133;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.toolbar-status .active {
+  color: #f56c6c;
+  font-weight: 600;
 }
 
 .filter-container {
@@ -680,10 +848,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .sql-input-wrap {
   flex: 1;
+  min-width: 280px;
   position: relative;
 }
 
@@ -694,6 +864,12 @@ onMounted(() => {
 .sql-input :deep(.el-input__wrapper) {
   font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
   font-size: 13px;
+}
+
+.sql-command-hint {
+  flex-shrink: 0;
+  color: #909399;
+  font-size: 12px;
 }
 
 /* Custom suggestion dropdown */

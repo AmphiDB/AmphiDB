@@ -16,40 +16,66 @@
           :value="db"
         />
       </el-select>
-      <el-button 
-        type="primary" 
-        :icon="VideoPlay" 
+      <el-button
+        type="primary"
+        :icon="VideoPlay"
         @click="executeQuery"
         :loading="executing"
         :disabled="!sqlText.trim()"
       >
         执行 (Ctrl+Enter)
       </el-button>
-      <el-button 
-        :icon="Close" 
+      <el-button
+        :icon="MagicStick"
+        @click="formatSql"
+        :disabled="!sqlText.trim()"
+      >
+        格式化
+      </el-button>
+      <el-button
+        :icon="CopyDocument"
+        @click="copySql"
+        :disabled="!sqlText.trim()"
+      >
+        复制 SQL
+      </el-button>
+      <el-button
+        :icon="Close"
         @click="cancelQuery"
         :disabled="!executing"
       >
         取消
       </el-button>
-      <el-button 
-        :icon="FolderAdd" 
+      <el-button
+        :icon="FolderAdd"
         @click="showSaveDialog"
         :disabled="!sqlText.trim()"
       >
         保存查询
       </el-button>
-      <el-button 
-        :icon="Delete" 
+      <el-button
+        :icon="Delete"
         @click="clearEditor"
       >
         清空
       </el-button>
       <el-divider direction="vertical" />
+      <span v-if="hasSelectedSql" class="selection-hint">
+        已选中 SQL，执行时仅运行选中内容
+      </span>
       <span v-if="lastExecutionTime" class="execution-info">
         执行时间: {{ formatDuration(lastExecutionTime) }}
       </span>
     </div>
+
+    <NaturalLanguageSqlBox
+      class="query-ai-box"
+      :profile-id="props.profileId"
+      :database="selectedDatabase"
+      :disabled="!selectedDatabase"
+      placeholder="白话查询，例如：统计每个用户最近 30 天订单数，按订单数倒序"
+      @generated="insertGeneratedSql"
+    />
 
     <div class="editor-container">
       <div ref="editorRef" class="codemirror-wrapper"></div>
@@ -69,10 +95,10 @@
                   执行时间: {{ formatDuration(queryResult.executionTime) }}
                 </el-tag>
               </div>
-              <el-table 
-                :data="queryResult.rows" 
-                border 
-                stripe 
+              <el-table
+                :data="queryResult.rows"
+                border
+                stripe
                 style="width: 100%; margin-top: 10px;"
                 max-height="400"
               >
@@ -138,7 +164,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="查询历史" name="history">
-          <query-history 
+          <query-history
             :profile-id="props.profileId"
             @select-query="handleSelectHistory"
           />
@@ -171,7 +197,7 @@
     </div>
 
     <!-- 保存查询对话框 -->
-    <el-dialog v-model="saveDialogVisible" title="保存查询" width="500px">
+    <el-dialog v-model="saveDialogVisible" title="保存查询" width="min(600px, 88vw)">
       <el-form :model="saveForm" label-width="80px">
         <el-form-item label="名称" required>
           <el-input v-model="saveForm.name" placeholder="输入查询名称" />
@@ -189,17 +215,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, Close, Delete, FolderAdd, Folder } from '@element-plus/icons-vue'
+import { VideoPlay, Close, Delete, FolderAdd, Folder, MagicStick, CopyDocument } from '@element-plus/icons-vue'
 import { EditorView, basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
+import { EditorState, type Extension } from '@codemirror/state'
 import { sql as sqlLang, SQLDialect } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { keymap } from '@codemirror/view'
-import { ExecuteQuery, CancelQuery, ListDatabases, ListTables, SaveQuery, GetSavedQueries, DeleteSavedQuery } from '../../wailsjs/go/backend/App'
+import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
+import { ExecuteQuery, CancelQuery, ListDatabases, ListTables, GetTableSchema, SaveQuery, GetSavedQueries, DeleteSavedQuery } from '../../wailsjs/go/backend/App'
 import { query, repository, storage } from '../../wailsjs/go/models'
 import QueryHistory from './QueryHistory.vue'
+import NaturalLanguageSqlBox from './NaturalLanguageSqlBox.vue'
+import {
+  SQL_FUNCTIONS,
+  SQL_KEYWORDS,
+  extractTablesFromSql,
+  filterCompletionValues,
+  getCompletionContext,
+  preferredFieldTables,
+  tableForQualifier,
+} from '../utils/sqlCompletion'
 
 interface Props {
   profileId: string
@@ -221,12 +258,14 @@ const queryError = ref<QueryError | null>(null)
 const lastExecutionTime = ref<number>(0)
 const activeTab = ref('result')
 const currentQueryId = ref<string>('')
+const hasSelectedSql = ref(false)
 
 // 数据库和表相关
 const databases = ref<string[]>([])
 const selectedDatabase = ref<string>('')
 const tables = ref<string[]>([])
 const schema = ref<any>(null)
+const tableColumns = ref<Record<string, string[]>>({})
 
 // 保存查询相关
 const saveDialogVisible = ref(false)
@@ -237,47 +276,157 @@ const saveForm = ref({
   description: ''
 })
 
+const updateSelectionState = (state: EditorState) => {
+  hasSelectedSql.value = state.selection.ranges.some((range) => {
+    return !range.empty && state.sliceDoc(range.from, range.to).trim().length > 0
+  })
+}
+
+const getSelectedSql = (): string => {
+  if (!editorView) return ''
+
+  return editorView.state.selection.ranges
+    .filter((range) => !range.empty)
+    .map((range) => editorView?.state.sliceDoc(range.from, range.to) || '')
+    .join('\n')
+    .trim()
+}
+
+const getSqlForAction = (): string => {
+  return getSelectedSql() || sqlText.value.trim()
+}
+
+const tableNameSet = () => new Set(tables.value.map(table => table.toLowerCase()))
+
+const loadTableColumns = async (tableName: string) => {
+  if (!props.profileId || !selectedDatabase.value || !tableName) return []
+  const normalized = tableName.replace(/^[`"\[]|[`"\]]$/g, '')
+  if (tableColumns.value[normalized]) return tableColumns.value[normalized]
+  if (!tableNameSet().has(normalized.toLowerCase())) return []
+
+  try {
+    const tableSchema = await GetTableSchema(props.profileId, selectedDatabase.value, normalized)
+    const rawColumns = (tableSchema as any)?.columns || (tableSchema as any)?.Columns || []
+    const columns = rawColumns.map((column: any) => column.name || column.Name).filter(Boolean)
+    tableColumns.value = {
+      ...tableColumns.value,
+      [normalized]: columns,
+    }
+    schema.value = {
+      ...(schema.value || {}),
+      [normalized]: columns,
+    }
+    return columns
+  } catch (error) {
+    console.warn('加载表字段失败:', tableName, error)
+    return []
+  }
+}
+
+const completionOption = (label: string, type: string, detail?: string) => ({
+  label,
+  type,
+  detail,
+  apply: label,
+})
+
+const sqlCompletionSource = async (context: CompletionContext) => {
+  const before = context.state.sliceDoc(0, context.pos)
+  const completionContext = getCompletionContext(before)
+  const tableRefs = extractTablesFromSql(before)
+
+  if (!context.explicit && completionContext.fragment.length === 0 && completionContext.type !== 'member') {
+    return null
+  }
+
+  if (completionContext.type === 'table') {
+    const options = filterCompletionValues(tables.value, completionContext.fragment)
+      .map((table: string) => completionOption(table, 'class', '表'))
+    return { from: completionContext.from, options, validFor: /^[\w$`"]*$/ }
+  }
+
+  if (completionContext.type === 'member') {
+    const tableName = tableForQualifier(completionContext.qualifier, tableRefs)
+    const columns = await loadTableColumns(tableName)
+    const options = filterCompletionValues(columns, completionContext.fragment)
+      .map((column: string) => completionOption(column, 'property', tableName || '字段'))
+    return { from: completionContext.from, options, validFor: /^[\w$`"]*$/ }
+  }
+
+  const fieldTableNames = preferredFieldTables(before)
+  const fieldOptions: any[] = []
+  for (const tableName of fieldTableNames) {
+    const columns = await loadTableColumns(tableName)
+    fieldOptions.push(
+      ...filterCompletionValues(columns, completionContext.fragment).map((column: string) => completionOption(column, 'property', tableName))
+    )
+  }
+
+  const functionOptions = filterCompletionValues(SQL_FUNCTIONS, completionContext.fragment)
+    .map((fn: string) => completionOption(fn, 'function', 'SQL 函数'))
+  const keywordOptions = filterCompletionValues(SQL_KEYWORDS, completionContext.fragment)
+    .map((keyword: string) => completionOption(keyword, 'keyword', '关键字'))
+  const tableOptions = filterCompletionValues(tables.value, completionContext.fragment)
+    .map((table: string) => completionOption(table, 'class', '表'))
+
+  return {
+    from: completionContext.from,
+    options: [...fieldOptions, ...functionOptions, ...keywordOptions, ...tableOptions].slice(0, 80),
+    validFor: /^[\w$`"]*$/,
+  }
+}
+
+const createEditorExtensions = (): Extension[] => [
+  basicSetup,
+  sqlLang({
+    dialect: SQLDialect.define({}),
+    schema: schema.value || {}
+  }),
+  autocompletion({
+    override: [sqlCompletionSource],
+    activateOnTyping: true,
+    maxRenderedOptions: 18,
+  }),
+  oneDark,
+  keymap.of([
+    {
+      key: 'Ctrl-Enter',
+      run: () => {
+        executeQuery()
+        return true
+      }
+    },
+    {
+      key: 'Cmd-Enter',
+      run: () => {
+        executeQuery()
+        return true
+      }
+    }
+  ]),
+  EditorView.updateListener.of((update) => {
+    if (update.docChanged) {
+      sqlText.value = update.state.doc.toString()
+    }
+    if (update.docChanged || update.selectionSet) {
+      updateSelectionState(update.state)
+    }
+  })
+]
+
 // 初始化 CodeMirror 编辑器
 onMounted(async () => {
   // 加载数据库列表
   await loadDatabases()
   // 加载已保存的查询
   await loadSavedQueries()
-  
+
   if (!editorRef.value) return
 
   try {
     const startState = EditorState.create({
       doc: '',
-      extensions: [
-        basicSetup,
-        sqlLang({
-          dialect: SQLDialect.define({}),
-          schema: schema.value || {}
-        }),
-        oneDark,
-        keymap.of([
-          {
-            key: 'Ctrl-Enter',
-            run: () => {
-              executeQuery()
-              return true
-            }
-          },
-          {
-            key: 'Cmd-Enter',
-            run: () => {
-              executeQuery()
-              return true
-            }
-          }
-        ]),
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            sqlText.value = update.state.doc.toString()
-          }
-        })
-      ]
+      extensions: createEditorExtensions()
     })
 
     editorView = new EditorView({
@@ -299,7 +448,7 @@ onBeforeUnmount(() => {
 // 加载数据库列表
 const loadDatabases = async () => {
   if (!props.profileId) return
-  
+
   try {
     const result = await ListDatabases(props.profileId)
     // 提取数据库名称
@@ -312,18 +461,19 @@ const loadDatabases = async () => {
 // 加载表列表
 const loadTables = async (database: string) => {
   if (!props.profileId || !database) return
-  
+
   try {
     const result = await ListTables(props.profileId, database)
     // 提取表名称
     tables.value = result?.map((t: repository.Table) => t.name) || []
-    
+
     // 构建 schema 对象用于自动补全
     schema.value = {}
+    tableColumns.value = {}
     tables.value.forEach(tableName => {
       schema.value[tableName] = []
     })
-    
+
     // 重新配置编辑器以使用新的 schema
     updateEditorSchema()
   } catch (error: any) {
@@ -335,46 +485,20 @@ const loadTables = async (database: string) => {
 // 更新编辑器的 schema 配置
 const updateEditorSchema = () => {
   if (!editorView) return
-  
+
   try {
     // 保存当前文档内容
     const currentDoc = editorView.state.doc.toString()
-    
+
     // 创建新的编辑器状态
     const newState = EditorState.create({
       doc: currentDoc,
-      extensions: [
-        basicSetup,
-        sqlLang({
-          dialect: SQLDialect.define({}),
-          schema: schema.value || {}
-        }),
-        oneDark,
-        keymap.of([
-          {
-            key: 'Ctrl-Enter',
-            run: () => {
-              executeQuery()
-              return true
-            }
-          },
-          {
-            key: 'Cmd-Enter',
-            run: () => {
-              executeQuery()
-              return true
-            }
-          }
-        ]),
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            sqlText.value = update.state.doc.toString()
-          }
-        })
-      ]
+      selection: editorView.state.selection,
+      extensions: createEditorExtensions()
     })
-    
+
     editorView.setState(newState)
+    updateSelectionState(newState)
   } catch (error) {
     console.error('更新编辑器 schema 失败:', error)
   }
@@ -394,7 +518,7 @@ const handleDatabaseChange = async (database: string) => {
 
 // 执行查询
 const executeQuery = async () => {
-  let sql = sqlText.value.trim()
+  let sql = getSqlForAction()
   if (!sql) {
     ElMessage.warning('请输入 SQL 语句')
     return
@@ -426,15 +550,15 @@ const executeQuery = async () => {
         // USE 失败不影响后续查询，可能数据库已经选择或者 SQL 中使用了完全限定名
       }
     }
-    
+
     // 执行实际的查询
     const result = await ExecuteQuery(props.profileId, sql)
-    
+
     // 检查结果是否有效
     if (!result) {
       throw new Error('后端返回空结果')
     }
-    
+
     if (result.error) {
       queryError.value = result.error
       activeTab.value = 'error'
@@ -460,6 +584,118 @@ const executeQuery = async () => {
   }
 }
 
+// 格式化 SQL
+const formatSqlText = (value: string): string => {
+  const clausePattern = /\b(LEFT\s+OUTER\s+JOIN|RIGHT\s+OUTER\s+JOIN|FULL\s+OUTER\s+JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|GROUP\s+BY|ORDER\s+BY|INSERT\s+INTO|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|UNION\s+ALL|SELECT|UPDATE|FROM|WHERE|HAVING|VALUES|SET|JOIN|ON|LIMIT|OFFSET|UNION)\b/gi
+
+  return value
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(clausePattern, (match) => `\n${match.toUpperCase().replace(/\s+/g, ' ')}`)
+    .replace(/\b(AND|OR)\b/gi, (match) => `\n  ${match.toUpperCase()}`)
+    .replace(/\nON\b/g, '\n  ON')
+    .replace(/;\s*/g, ';\n')
+    .replace(/^\s*\n/, '')
+    .trim()
+}
+
+const formatSql = () => {
+  if (!editorView) return
+
+  const selection = editorView.state.selection.main
+  const selectedSql = !selection.empty
+    ? editorView.state.sliceDoc(selection.from, selection.to).trim()
+    : ''
+  const isFormattingSelection = Boolean(selectedSql)
+  const from = selectedSql ? selection.from : 0
+  const to = selectedSql ? selection.to : editorView.state.doc.length
+  const formatted = formatSqlText(editorView.state.sliceDoc(from, to))
+
+  if (!formatted) {
+    ElMessage.warning('请输入 SQL 语句')
+    return
+  }
+
+  editorView.dispatch({
+    changes: {
+      from,
+      to,
+      insert: formatted
+    },
+    selection: {
+      anchor: isFormattingSelection ? from : from + formatted.length,
+      head: from + formatted.length
+    }
+  })
+  sqlText.value = editorView.state.doc.toString()
+  updateSelectionState(editorView.state)
+  ElMessage.success('SQL 已格式化')
+}
+
+// 复制 SQL
+const copyTextToClipboard = async (text: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'readonly')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+
+  try {
+    document.execCommand('copy')
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
+
+const copySql = async () => {
+  const sql = getSqlForAction()
+  if (!sql) {
+    ElMessage.warning('请输入 SQL 语句')
+    return
+  }
+
+  try {
+    await copyTextToClipboard(sql)
+    ElMessage.success(getSelectedSql() ? '已复制选中 SQL' : '已复制 SQL')
+  } catch (error: any) {
+    ElMessage.error('复制 SQL 失败: ' + (error?.message || '未知错误'))
+  }
+}
+
+const setEditorText = (value: string) => {
+  if (!editorView) return
+  editorView.dispatch({
+    changes: {
+      from: 0,
+      to: editorView.state.doc.length,
+      insert: value
+    },
+    selection: {
+      anchor: value.length
+    }
+  })
+  sqlText.value = value
+  updateSelectionState(editorView.state)
+}
+
+const insertGeneratedSql = (sql: string) => {
+  setEditorText(sql)
+  activeTab.value = 'result'
+  ElMessage.success('SQL 已生成，请确认后执行')
+}
+
 // 取消查询
 const cancelQuery = async () => {
   if (!currentQueryId.value) return
@@ -476,30 +712,16 @@ const cancelQuery = async () => {
 // 清空编辑器
 const clearEditor = () => {
   if (editorView) {
-    const currentLength = editorView.state.doc.length
-    editorView.dispatch({
-      changes: {
-        from: 0,
-        to: currentLength,
-        insert: ''
-      }
-    })
-    sqlText.value = ''
+    setEditorText('')
+    hasSelectedSql.value = false
   }
 }
 
 // 从历史记录选择查询
 const handleSelectHistory = (historySql: string) => {
   if (editorView) {
-    const currentLength = editorView.state.doc.length
-    editorView.dispatch({
-      changes: {
-        from: 0,
-        to: currentLength,
-        insert: historySql
-      }
-    })
-    sqlText.value = historySql
+    setEditorText(historySql)
+    hasSelectedSql.value = false
     activeTab.value = 'result'
   }
 }
@@ -562,7 +784,7 @@ const handleSaveQuery = async () => {
 // 加载已保存的查询
 const loadSavedQueries = async () => {
   if (!props.profileId) return
-  
+
   try {
     const result = await GetSavedQueries(props.profileId)
     savedQueries.value = result || []
@@ -574,15 +796,8 @@ const loadSavedQueries = async () => {
 // 加载已保存的查询到编辑器
 const loadSavedQuery = (query: SavedQuery) => {
   if (editorView) {
-    const currentLength = editorView.state.doc.length
-    editorView.dispatch({
-      changes: {
-        from: 0,
-        to: currentLength,
-        insert: query.sql
-      }
-    })
-    sqlText.value = query.sql
+    setEditorText(query.sql)
+    hasSelectedSql.value = false
     if (query.database) {
       selectedDatabase.value = query.database
       handleDatabaseChange(query.database)
@@ -631,6 +846,17 @@ const formatDate = (dateStr: string): string => {
 .execution-info {
   color: #606266;
   font-size: 14px;
+}
+
+.selection-hint {
+  color: #409eff;
+  font-size: 13px;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+
+.query-ai-box {
+  margin-bottom: 10px;
 }
 
 .editor-container {

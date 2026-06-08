@@ -196,7 +196,7 @@ onUnmounted(() => {
     <el-dialog
       v-model="dialogVisible"
       title="Query Detail"
-      width="640px"
+      width="min(760px, 90vw)"
       destroy-on-close
     >
       <pre v-if="selectedEntry" class="query-detail">{{ selectedEntry.queryText }}</pre>

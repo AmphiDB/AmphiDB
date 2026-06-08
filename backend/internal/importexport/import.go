@@ -2,9 +2,11 @@ package importexport
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -42,8 +44,31 @@ type ColumnMapping struct {
 	TableColumns []string
 }
 
+type importRow struct {
+	Values []interface{}
+}
+
+const importBatchSize = 1000
+const maxImportErrors = 200
+
+func (r *ImportResult) addError(row int, message string) {
+	r.FailedRows++
+	if len(r.Errors) >= maxImportErrors {
+		return
+	}
+	r.Errors = append(r.Errors, ImportError{
+		Row:     row,
+		Message: message,
+	})
+}
+
 // ImportFromSQL 从 SQL 文件导入数据
 func (i *Importer) ImportFromSQL(database string, sqlFilePath string, progressCallback func(current, total int)) (*ImportResult, error) {
+	return i.ImportFromSQLContext(context.Background(), database, sqlFilePath, progressCallback)
+}
+
+// ImportFromSQLContext 从 SQL 文件导入数据，支持取消
+func (i *Importer) ImportFromSQLContext(ctx context.Context, database string, sqlFilePath string, progressCallback func(current, total int)) (*ImportResult, error) {
 	if database == "" {
 		return nil, fmt.Errorf("数据库名称不能为空")
 	}
@@ -59,7 +84,7 @@ func (i *Importer) ImportFromSQL(database string, sqlFilePath string, progressCa
 	defer file.Close()
 
 	// 切换到目标数据库
-	_, err = i.db.Exec(fmt.Sprintf("USE %s", escapeIdentifier(database)))
+	_, err = i.db.ExecContext(ctx, fmt.Sprintf("USE %s", escapeIdentifier(database)))
 	if err != nil {
 		return nil, fmt.Errorf("切换数据库失败: %w", err)
 	}
@@ -73,6 +98,9 @@ func (i *Importer) ImportFromSQL(database string, sqlFilePath string, progressCa
 
 	// 逐行读取并执行 SQL 语句
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
 
@@ -91,13 +119,12 @@ func (i *Importer) ImportFromSQL(database string, sqlFilePath string, progressCa
 			result.TotalRows++
 
 			// 执行 SQL 语句
-			_, err := i.db.Exec(stmt)
+			_, err := i.db.ExecContext(ctx, stmt)
 			if err != nil {
-				result.FailedRows++
-				result.Errors = append(result.Errors, ImportError{
-					Row:     lineNumber,
-					Message: fmt.Sprintf("执行 SQL 失败: %v", err),
-				})
+				if errors.Is(err, context.Canceled) {
+					return result, err
+				}
+				result.addError(lineNumber, fmt.Sprintf("执行 SQL 失败: %v", err))
 			} else {
 				result.SuccessRows++
 			}
@@ -121,6 +148,11 @@ func (i *Importer) ImportFromSQL(database string, sqlFilePath string, progressCa
 
 // ImportFromCSV 从 CSV 文件导入数据
 func (i *Importer) ImportFromCSV(database, table string, csvFilePath string, mapping ColumnMapping, progressCallback func(current, total int)) (*ImportResult, error) {
+	return i.ImportFromCSVContext(context.Background(), database, table, csvFilePath, mapping, progressCallback)
+}
+
+// ImportFromCSVContext 从 CSV 文件导入数据，支持取消
+func (i *Importer) ImportFromCSVContext(ctx context.Context, database, table string, csvFilePath string, mapping ColumnMapping, progressCallback func(current, total int)) (*ImportResult, error) {
 	if database == "" {
 		return nil, fmt.Errorf("数据库名称不能为空")
 	}
@@ -131,7 +163,11 @@ func (i *Importer) ImportFromCSV(database, table string, csvFilePath string, map
 		return nil, fmt.Errorf("CSV 文件路径不能为空")
 	}
 
-	// 打开 CSV 文件
+	totalRows, err := countCSVDataRows(ctx, csvFilePath)
+	if err != nil {
+		return nil, err
+	}
+
 	file, err := os.Open(csvFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("打开 CSV 文件失败: %w", err)
@@ -146,12 +182,16 @@ func (i *Importer) ImportFromCSV(database, table string, csvFilePath string, map
 	if err != nil {
 		return nil, fmt.Errorf("读取 CSV 表头失败: %w", err)
 	}
+	headers = normalizeColumns(headers)
 
 	// 如果没有提供映射，使用表头作为列名
 	if len(mapping.FileColumns) == 0 {
-		mapping.FileColumns = headers
-		mapping.TableColumns = headers
+		mapping = ColumnMapping{
+			FileColumns:  append([]string(nil), headers...),
+			TableColumns: append([]string(nil), headers...),
+		}
 	}
+	mapping = normalizeMapping(mapping)
 
 	// 验证映射
 	if len(mapping.FileColumns) != len(mapping.TableColumns) {
@@ -164,55 +204,45 @@ func (i *Importer) ImportFromCSV(database, table string, csvFilePath string, map
 		columnIndexMap[header] = i
 	}
 
-	result := &ImportResult{}
-	rowNumber := 1 // 从 1 开始（表头是第 0 行）
+	result := &ImportResult{TotalRows: totalRows}
+	rowNumber := 1
 
-	// 批量插入配置
-	batchSize := 100
-	batch := make([]map[string]interface{}, 0, batchSize)
+	tableColumns := append([]string(nil), mapping.TableColumns...)
+	batch := make([]importRow, 0, importBatchSize)
+	batchStartRow := 2
 
 	// 逐行读取数据
 	for {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			result.FailedRows++
-			result.Errors = append(result.Errors, ImportError{
-				Row:     rowNumber,
-				Message: fmt.Sprintf("读取 CSV 行失败: %v", err),
-			})
+			result.addError(rowNumber, fmt.Sprintf("读取 CSV 行失败: %v", err))
 			rowNumber++
 			continue
 		}
 
-		result.TotalRows++
+		rowNumber++
 
 		// 构建数据映射
-		data := make(map[string]interface{})
+		row := importRow{Values: make([]interface{}, len(mapping.FileColumns))}
 		valid := true
 
 		for i, fileCol := range mapping.FileColumns {
-			tableCol := mapping.TableColumns[i]
 			colIndex, exists := columnIndexMap[fileCol]
 
 			if !exists {
-				result.FailedRows++
-				result.Errors = append(result.Errors, ImportError{
-					Row:     rowNumber,
-					Message: fmt.Sprintf("CSV 文件中未找到列: %s", fileCol),
-				})
+				result.addError(rowNumber, fmt.Sprintf("CSV 文件中未找到列: %s", fileCol))
 				valid = false
 				break
 			}
 
 			if colIndex >= len(record) {
-				result.FailedRows++
-				result.Errors = append(result.Errors, ImportError{
-					Row:     rowNumber,
-					Message: fmt.Sprintf("CSV 行数据不完整，缺少列: %s", fileCol),
-				})
+				result.addError(rowNumber, fmt.Sprintf("CSV 行数据不完整，缺少列: %s", fileCol))
 				valid = false
 				break
 			}
@@ -220,52 +250,50 @@ func (i *Importer) ImportFromCSV(database, table string, csvFilePath string, map
 			// 处理空值
 			value := record[colIndex]
 			if value == "" {
-				data[tableCol] = nil
+				row.Values[i] = nil
 			} else {
-				data[tableCol] = value
+				row.Values[i] = value
 			}
 		}
 
 		if !valid {
-			rowNumber++
 			continue
 		}
 
 		// 添加到批次
-		batch = append(batch, data)
+		if len(batch) == 0 {
+			batchStartRow = rowNumber
+		}
+		batch = append(batch, row)
 
 		// 当批次满时执行插入
-		if len(batch) >= batchSize {
-			successCount, errors := i.executeBatchInsert(database, table, batch)
+		if len(batch) >= importBatchSize {
+			successCount, errors := i.executeBatchInsert(ctx, database, table, tableColumns, batch)
 			result.SuccessRows += successCount
-			result.FailedRows += len(errors)
 			for _, err := range errors {
-				result.Errors = append(result.Errors, ImportError{
-					Row:     rowNumber - len(batch) + err.Row,
-					Message: err.Message,
-				})
+				result.addError(batchStartRow+err.Row, err.Message)
+			}
+			if err := ctx.Err(); err != nil {
+				return result, err
 			}
 			batch = batch[:0] // 清空批次
 
 			// 报告进度
 			if progressCallback != nil {
-				progressCallback(result.TotalRows, result.TotalRows)
+				progressCallback(minInt(rowNumber-1, result.TotalRows), result.TotalRows)
 			}
 		}
-
-		rowNumber++
 	}
 
 	// 处理剩余的批次
 	if len(batch) > 0 {
-		successCount, errors := i.executeBatchInsert(database, table, batch)
+		successCount, errors := i.executeBatchInsert(ctx, database, table, tableColumns, batch)
 		result.SuccessRows += successCount
-		result.FailedRows += len(errors)
 		for _, err := range errors {
-			result.Errors = append(result.Errors, ImportError{
-				Row:     rowNumber - len(batch) + err.Row,
-				Message: err.Message,
-			})
+			result.addError(batchStartRow+err.Row, err.Message)
+		}
+		if err := ctx.Err(); err != nil {
+			return result, err
 		}
 	}
 
@@ -279,6 +307,11 @@ func (i *Importer) ImportFromCSV(database, table string, csvFilePath string, map
 
 // ImportFromJSON 从 JSON 文件导入数据
 func (i *Importer) ImportFromJSON(database, table string, jsonFilePath string, mapping ColumnMapping, progressCallback func(current, total int)) (*ImportResult, error) {
+	return i.ImportFromJSONContext(context.Background(), database, table, jsonFilePath, mapping, progressCallback)
+}
+
+// ImportFromJSONContext 从 JSON 文件导入数据，支持取消
+func (i *Importer) ImportFromJSONContext(ctx context.Context, database, table string, jsonFilePath string, mapping ColumnMapping, progressCallback func(current, total int)) (*ImportResult, error) {
 	if database == "" {
 		return nil, fmt.Errorf("数据库名称不能为空")
 	}
@@ -289,31 +322,38 @@ func (i *Importer) ImportFromJSON(database, table string, jsonFilePath string, m
 		return nil, fmt.Errorf("JSON 文件路径不能为空")
 	}
 
-	// 打开 JSON 文件
+	totalRows, err := countJSONArrayRows(ctx, jsonFilePath)
+	if err != nil {
+		return nil, err
+	}
+	if totalRows == 0 {
+		return nil, fmt.Errorf("JSON 文件中没有数据")
+	}
+
 	file, err := os.Open(jsonFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("打开 JSON 文件失败: %w", err)
 	}
 	defer file.Close()
 
-	// 解析 JSON 数组
-	var jsonData []map[string]interface{}
 	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&jsonData); err != nil {
-		return nil, fmt.Errorf("解析 JSON 文件失败: %w", err)
-	}
-
-	if len(jsonData) == 0 {
-		return nil, fmt.Errorf("JSON 文件中没有数据")
+	if err := readJSONArrayStart(decoder); err != nil {
+		return nil, err
 	}
 
 	// 如果没有提供映射，使用第一条记录的键作为列名
 	if len(mapping.FileColumns) == 0 {
-		for key := range jsonData[0] {
-			mapping.FileColumns = append(mapping.FileColumns, key)
-			mapping.TableColumns = append(mapping.TableColumns, key)
+		firstRecord, err := peekFirstJSONObject(jsonFilePath)
+		if err != nil {
+			return nil, err
+		}
+		for key := range firstRecord {
+			col := strings.TrimSpace(key)
+			mapping.FileColumns = append(mapping.FileColumns, col)
+			mapping.TableColumns = append(mapping.TableColumns, col)
 		}
 	}
+	mapping = normalizeMapping(mapping)
 
 	// 验证映射
 	if len(mapping.FileColumns) != len(mapping.TableColumns) {
@@ -321,34 +361,39 @@ func (i *Importer) ImportFromJSON(database, table string, jsonFilePath string, m
 	}
 
 	result := &ImportResult{
-		TotalRows: len(jsonData),
+		TotalRows: totalRows,
 	}
 
-	// 批量插入配置
-	batchSize := 100
-	batch := make([]map[string]interface{}, 0, batchSize)
+	tableColumns := append([]string(nil), mapping.TableColumns...)
+	batch := make([]importRow, 0, importBatchSize)
+	batchStartRow := 1
+	rowIndex := 0
 
 	// 逐条处理数据
-	for rowIndex, record := range jsonData {
+	for decoder.More() {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		rowIndex++
+		var record map[string]interface{}
+		if err := decoder.Decode(&record); err != nil {
+			return result, fmt.Errorf("解析 JSON 记录失败: %w", err)
+		}
+
 		// 构建数据映射
-		data := make(map[string]interface{})
+		row := importRow{Values: make([]interface{}, len(mapping.FileColumns))}
 		valid := true
 
 		for i, fileCol := range mapping.FileColumns {
-			tableCol := mapping.TableColumns[i]
 			value, exists := record[fileCol]
 
 			if !exists {
-				result.FailedRows++
-				result.Errors = append(result.Errors, ImportError{
-					Row:     rowIndex + 1,
-					Message: fmt.Sprintf("JSON 记录中未找到字段: %s", fileCol),
-				})
+				result.addError(rowIndex, fmt.Sprintf("JSON 记录中未找到字段: %s", fileCol))
 				valid = false
 				break
 			}
 
-			data[tableCol] = value
+			row.Values[i] = value
 		}
 
 		if !valid {
@@ -356,61 +401,79 @@ func (i *Importer) ImportFromJSON(database, table string, jsonFilePath string, m
 		}
 
 		// 添加到批次
-		batch = append(batch, data)
+		if len(batch) == 0 {
+			batchStartRow = rowIndex
+		}
+		batch = append(batch, row)
 
 		// 当批次满时执行插入
-		if len(batch) >= batchSize {
-			successCount, errors := i.executeBatchInsert(database, table, batch)
+		if len(batch) >= importBatchSize {
+			successCount, errors := i.executeBatchInsert(ctx, database, table, tableColumns, batch)
 			result.SuccessRows += successCount
-			result.FailedRows += len(errors)
 			for _, err := range errors {
-				result.Errors = append(result.Errors, ImportError{
-					Row:     rowIndex - len(batch) + err.Row + 1,
-					Message: err.Message,
-				})
+				result.addError(batchStartRow+err.Row, err.Message)
+			}
+			if err := ctx.Err(); err != nil {
+				return result, err
 			}
 			batch = batch[:0] // 清空批次
 
 			// 报告进度
 			if progressCallback != nil {
-				progressCallback(rowIndex + 1, len(jsonData))
+				progressCallback(rowIndex, result.TotalRows)
 			}
 		}
+	}
+	if err := readJSONArrayEnd(decoder); err != nil {
+		return result, err
 	}
 
 	// 处理剩余的批次
 	if len(batch) > 0 {
-		successCount, errors := i.executeBatchInsert(database, table, batch)
+		successCount, errors := i.executeBatchInsert(ctx, database, table, tableColumns, batch)
 		result.SuccessRows += successCount
-		result.FailedRows += len(errors)
 		for _, err := range errors {
-			result.Errors = append(result.Errors, ImportError{
-				Row:     len(jsonData) - len(batch) + err.Row + 1,
-				Message: err.Message,
-			})
+			result.addError(batchStartRow+err.Row, err.Message)
+		}
+		if err := ctx.Err(); err != nil {
+			return result, err
 		}
 	}
 
 	// 最终进度报告
 	if progressCallback != nil {
-		progressCallback(len(jsonData), len(jsonData))
+		progressCallback(result.TotalRows, result.TotalRows)
 	}
 
 	return result, nil
 }
 
 // executeBatchInsert 执行批量插入
-func (i *Importer) executeBatchInsert(database, table string, batch []map[string]interface{}) (int, []ImportError) {
+func (i *Importer) executeBatchInsert(ctx context.Context, database, table string, columns []string, batch []importRow) (int, []ImportError) {
 	if len(batch) == 0 {
 		return 0, nil
+	}
+
+	if result, err := i.execBatchInsert(ctx, database, table, columns, batch); err == nil {
+		rowsAffected, rowsErr := result.RowsAffected()
+		if rowsErr == nil {
+			return int(rowsAffected), nil
+		}
+		return len(batch), nil
 	}
 
 	successCount := 0
 	var errors []ImportError
 
-	// 对每条记录执行插入（如果批量插入失败，则逐条插入以记录具体错误）
-	for idx, data := range batch {
-		err := i.insertRow(database, table, data)
+	for idx, row := range batch {
+		if err := ctx.Err(); err != nil {
+			errors = append(errors, ImportError{
+				Row:     idx,
+				Message: err.Error(),
+			})
+			break
+		}
+		_, err := i.execBatchInsert(ctx, database, table, columns, []importRow{row})
 		if err != nil {
 			errors = append(errors, ImportError{
 				Row:     idx,
@@ -424,37 +487,189 @@ func (i *Importer) executeBatchInsert(database, table string, batch []map[string
 	return successCount, errors
 }
 
-// insertRow 插入单行数据
-func (i *Importer) insertRow(database, table string, data map[string]interface{}) error {
-	if len(data) == 0 {
-		return fmt.Errorf("插入数据不能为空")
+func (i *Importer) execBatchInsert(ctx context.Context, database, table string, columns []string, batch []importRow) (sql.Result, error) {
+	if len(columns) == 0 || len(batch) == 0 {
+		return nil, fmt.Errorf("插入数据不能为空")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
-	// 构建列名和占位符
-	columns := make([]string, 0, len(data))
-	placeholders := make([]string, 0, len(data))
-	values := make([]interface{}, 0, len(data))
-
-	for column, value := range data {
-		columns = append(columns, escapeIdentifier(column))
-		placeholders = append(placeholders, "?")
-		values = append(values, value)
+	escapedColumns := make([]string, len(columns))
+	for idx, column := range columns {
+		escapedColumns[idx] = escapeIdentifier(column)
 	}
 
-	// 构建 INSERT 语句
-	sqlQuery := fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES (%s)",
+	rowPlaceholder := "(" + strings.TrimRight(strings.Repeat("?, ", len(columns)), ", ") + ")"
+	placeholders := make([]string, len(batch))
+	values := make([]interface{}, 0, len(batch)*len(columns))
+	for rowIdx, row := range batch {
+		if len(row.Values) != len(columns) {
+			return nil, fmt.Errorf("插入数据列数不匹配")
+		}
+		placeholders[rowIdx] = rowPlaceholder
+		values = append(values, row.Values...)
+	}
+
+	sqlQuery := fmt.Sprintf("INSERT INTO %s.%s (%s) VALUES %s",
 		escapeIdentifier(database),
 		escapeIdentifier(table),
-		strings.Join(columns, ", "),
+		strings.Join(escapedColumns, ", "),
 		strings.Join(placeholders, ", "))
 
-	// 执行插入
-	_, err := i.db.Exec(sqlQuery, values...)
-	if err != nil {
-		return err
+	if len(batch) == 1 {
+		return i.db.ExecContext(ctx, sqlQuery, values...)
 	}
 
+	tx, err := i.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx, sqlQuery, values...)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// insertRow 插入单行数据
+func (i *Importer) insertRow(database, table string, data map[string]interface{}) error {
+	columns := make([]string, 0, len(data))
+	row := importRow{Values: make([]interface{}, 0, len(data))}
+	for column, value := range data {
+		columns = append(columns, strings.TrimSpace(column))
+		row.Values = append(row.Values, value)
+	}
+	_, err := i.execBatchInsert(context.Background(), database, table, columns, []importRow{row})
+	return err
+}
+
+func normalizeColumns(columns []string) []string {
+	normalized := make([]string, len(columns))
+	for idx, column := range columns {
+		normalized[idx] = strings.TrimSpace(column)
+	}
+	return normalized
+}
+
+func normalizeMapping(mapping ColumnMapping) ColumnMapping {
+	return ColumnMapping{
+		FileColumns:  normalizeColumns(mapping.FileColumns),
+		TableColumns: normalizeColumns(mapping.TableColumns),
+	}
+}
+
+func countCSVDataRows(ctx context.Context, csvFilePath string) (int, error) {
+	file, err := os.Open(csvFilePath)
+	if err != nil {
+		return 0, fmt.Errorf("打开 CSV 文件失败: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	if _, err := reader.Read(); err != nil {
+		return 0, fmt.Errorf("读取 CSV 表头失败: %w", err)
+	}
+
+	totalRows := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return totalRows, err
+		}
+		if _, err := reader.Read(); err == io.EOF {
+			break
+		} else if err != nil {
+			return 0, fmt.Errorf("读取 CSV 数据失败: %w", err)
+		}
+		totalRows++
+	}
+	return totalRows, nil
+}
+
+func countJSONArrayRows(ctx context.Context, jsonFilePath string) (int, error) {
+	file, err := os.Open(jsonFilePath)
+	if err != nil {
+		return 0, fmt.Errorf("打开 JSON 文件失败: %w", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	if err := readJSONArrayStart(decoder); err != nil {
+		return 0, err
+	}
+
+	totalRows := 0
+	for decoder.More() {
+		if err := ctx.Err(); err != nil {
+			return totalRows, err
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return totalRows, fmt.Errorf("解析 JSON 记录失败: %w", err)
+		}
+		totalRows++
+	}
+	if err := readJSONArrayEnd(decoder); err != nil {
+		return totalRows, err
+	}
+	return totalRows, nil
+}
+
+func peekFirstJSONObject(jsonFilePath string) (map[string]interface{}, error) {
+	file, err := os.Open(jsonFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("打开 JSON 文件失败: %w", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	if err := readJSONArrayStart(decoder); err != nil {
+		return nil, err
+	}
+	if !decoder.More() {
+		return nil, fmt.Errorf("JSON 文件中没有数据")
+	}
+
+	var record map[string]interface{}
+	if err := decoder.Decode(&record); err != nil {
+		return nil, fmt.Errorf("解析 JSON 记录失败: %w", err)
+	}
+	return record, nil
+}
+
+func readJSONArrayStart(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("解析 JSON 文件失败: %w", err)
+	}
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '[' {
+		return fmt.Errorf("JSON 文件必须是数组")
+	}
 	return nil
+}
+
+func readJSONArrayEnd(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("解析 JSON 文件失败: %w", err)
+	}
+	delim, ok := token.(json.Delim)
+	if !ok || delim != ']' {
+		return fmt.Errorf("JSON 文件数组结束标记无效")
+	}
+	return nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ValidateCSVFormat 验证 CSV 文件格式
@@ -494,15 +709,19 @@ func (i *Importer) ValidateJSONFormat(jsonFilePath string) error {
 	}
 	defer file.Close()
 
-	// 尝试解析 JSON
-	var jsonData []map[string]interface{}
 	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&jsonData); err != nil {
+	if err := readJSONArrayStart(decoder); err != nil {
+		return err
+	}
+	if !decoder.More() {
+		return fmt.Errorf("JSON 文件中没有数据")
+	}
+	var firstRecord map[string]interface{}
+	if err := decoder.Decode(&firstRecord); err != nil {
 		return fmt.Errorf("JSON 格式无效: %w", err)
 	}
-
-	if len(jsonData) == 0 {
-		return fmt.Errorf("JSON 文件中没有数据")
+	if len(firstRecord) == 0 {
+		return fmt.Errorf("JSON 第一条记录为空")
 	}
 
 	return nil

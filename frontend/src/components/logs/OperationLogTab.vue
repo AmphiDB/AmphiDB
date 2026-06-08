@@ -259,7 +259,7 @@ onUnmounted(stopRefresh)
     </div>
 
     <!-- 详情弹窗 -->
-    <el-dialog v-model="dialogVisible" title="操作日志详情" width="700px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="操作日志详情" width="min(820px, 92vw)" destroy-on-close>
       <div v-if="selectedEntry" class="log-detail">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="时间">{{ formatTimestamp(selectedEntry.timestamp) }}</el-descriptions-item>

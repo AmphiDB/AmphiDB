@@ -149,7 +149,7 @@
     <el-dialog
       v-model="showProgressDialog"
       title="数据同步进度"
-      width="500px"
+      width="min(600px, 88vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
       :show-close="false"

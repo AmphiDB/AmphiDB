@@ -109,7 +109,7 @@
     </div>
 
     <!-- 文档详情 Dialog -->
-    <el-dialog v-model="docDialogVisible" title="文档详情" width="680px" :close-on-click-modal="true" destroy-on-close>
+    <el-dialog v-model="docDialogVisible" title="文档详情" width="min(800px, 92vw)" :close-on-click-modal="true" destroy-on-close>
       <div class="doc-dialog-toolbar">
         <span class="doc-dialog-hint">点击 ▶/▼ 折叠/展开节点</span>
         <div class="doc-dialog-actions">

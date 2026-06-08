@@ -14,6 +14,10 @@ export function CancelQuery(arg1, arg2) {
   return window['go']['backend']['App']['CancelQuery'](arg1, arg2);
 }
 
+export function CancelTransferTask(arg1) {
+  return window['go']['backend']['App']['CancelTransferTask'](arg1);
+}
+
 export function ClearExecutionLog(arg1, arg2) {
   return window['go']['backend']['App']['ClearExecutionLog'](arg1, arg2);
 }
@@ -106,6 +110,10 @@ export function ExportToSQL(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['backend']['App']['ExportToSQL'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function GenerateSQLFromNaturalLanguage(arg1) {
+  return window['go']['backend']['App']['GenerateSQLFromNaturalLanguage'](arg1);
+}
+
 export function GenerateSyncScript(arg1, arg2, arg3, arg4) {
   return window['go']['backend']['App']['GenerateSyncScript'](arg1, arg2, arg3, arg4);
 }
@@ -120,6 +128,10 @@ export function GetCreateTableDDL(arg1, arg2, arg3) {
 
 export function GetExecutionLog(arg1, arg2, arg3) {
   return window['go']['backend']['App']['GetExecutionLog'](arg1, arg2, arg3);
+}
+
+export function GetLLMConfig() {
+  return window['go']['backend']['App']['GetLLMConfig']();
 }
 
 export function GetMonitoringSnapshot(arg1, arg2) {
@@ -302,6 +314,10 @@ export function SaveFileDialog(arg1, arg2, arg3) {
   return window['go']['backend']['App']['SaveFileDialog'](arg1, arg2, arg3);
 }
 
+export function SaveLLMConfig(arg1) {
+  return window['go']['backend']['App']['SaveLLMConfig'](arg1);
+}
+
 export function SaveQuery(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['backend']['App']['SaveQuery'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -310,12 +326,24 @@ export function SetSlowQueryThreshold(arg1, arg2) {
   return window['go']['backend']['App']['SetSlowQueryThreshold'](arg1, arg2);
 }
 
+export function StartExport(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['backend']['App']['StartExport'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function StartImport(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['backend']['App']['StartImport'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function SyncTableData(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['backend']['App']['SyncTableData'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function TestConnection(arg1) {
   return window['go']['backend']['App']['TestConnection'](arg1);
+}
+
+export function TestLLMConfig(arg1) {
+  return window['go']['backend']['App']['TestLLMConfig'](arg1);
 }
 
 export function UpdateProfile(arg1, arg2) {

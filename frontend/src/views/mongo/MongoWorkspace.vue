@@ -98,7 +98,7 @@
     <el-dialog
       v-model="exportDialogVisible"
       title="导出文档"
-      width="360px"
+      width="min(480px, 86vw)"
       :close-on-click-modal="false"
     >
       <el-form label-width="80px">

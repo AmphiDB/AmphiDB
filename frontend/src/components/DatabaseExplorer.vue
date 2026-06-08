@@ -105,6 +105,10 @@
             <el-icon><Grid /></el-icon>
             <span>查看表数据</span>
           </div>
+          <div class="context-menu-item" @click="handleMenuCommand('copy-select')">
+            <el-icon><Tickets /></el-icon>
+            <span>复制 SELECT</span>
+          </div>
           <div class="context-menu-item" @click="handleMenuCommand('view-schema')">
             <el-icon><Document /></el-icon>
             <span>查看表结构</span>
@@ -112,6 +116,15 @@
           <div class="context-menu-item" @click="handleMenuCommand('edit-schema')">
             <el-icon><Edit /></el-icon>
             <span>修改表结构</span>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-item" @click="handleMenuCommand('copy-table-name')">
+            <el-icon><CopyDocument /></el-icon>
+            <span>复制表名</span>
+          </div>
+          <div class="context-menu-item" @click="handleMenuCommand('copy-full-name')">
+            <el-icon><CopyDocument /></el-icon>
+            <span>复制完整名称</span>
           </div>
           <div class="context-menu-divider" />
           <div class="context-menu-item danger" @click="handleMenuCommand('drop-table')">
@@ -138,6 +151,8 @@ import {
   Plus,
   Search,
   ArrowRight,
+  CopyDocument,
+  Tickets,
 } from '@element-plus/icons-vue';
 import { useConnectionStore } from '../stores/connection';
 import { useDatabaseStore } from '../stores/database';
@@ -177,6 +192,10 @@ const currentTable = computed(() => databaseStore.currentTable);
 
 const isCacheValid = (ts: number) => Date.now() - ts < CACHE_DURATION;
 
+const tableCacheKey = (dbName: string) => {
+  return `${connectionStore.currentConnection?.id || 'no-connection'}:${dbName}`;
+};
+
 const formatRowCount = (count: number): string => {
   if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
   if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
@@ -214,7 +233,8 @@ const loadDatabases = async () => {
 const loadTables = async (dbName: string) => {
   if (!connectionStore.currentConnection) return;
 
-  const cached = tableCache.get(dbName);
+  const cacheKey = tableCacheKey(dbName);
+  const cached = tableCache.get(cacheKey);
   if (cached && isCacheValid(cached.timestamp)) {
     dbTablesMap[dbName] = cached.data;
     return;
@@ -223,7 +243,7 @@ const loadTables = async (dbName: string) => {
   loadingDbs.add(dbName);
   try {
     const tables = await DatabaseAPI.listTables(connectionStore.currentConnection.id, dbName);
-    tableCache.set(dbName, { data: tables, timestamp: Date.now() });
+    tableCache.set(cacheKey, { data: tables, timestamp: Date.now() });
     dbTablesMap[dbName] = tables;
     if (dbName === databaseStore.currentDatabase) {
       databaseStore.setTables(tables);
@@ -275,6 +295,15 @@ const handleContextMenu = (event: MouseEvent, data: any) => {
 
 const handleMenuClick = (e: Event) => e.stopPropagation();
 
+const copyText = async (text: string, successMessage: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    ElMessage.success(successMessage);
+  } catch (error: any) {
+    ElMessage.error(error?.message || '复制失败');
+  }
+};
+
 const handleMenuCommand = async (command: string) => {
   const data = contextMenuData.value;
   contextMenuVisible.value = false;
@@ -289,7 +318,7 @@ const handleMenuCommand = async (command: string) => {
       break;
 
     case 'refresh-tables':
-      tableCache.delete(data.database);
+      tableCache.delete(tableCacheKey(data.database));
       dbFilterMap[data.database] = '';
       if (expandedDbs.has(data.database)) {
         await loadTables(data.database);
@@ -315,6 +344,18 @@ const handleMenuCommand = async (command: string) => {
       emit('viewData');
       break;
 
+    case 'copy-table-name':
+      await copyText(data.table, '表名已复制');
+      break;
+
+    case 'copy-full-name':
+      await copyText(`\`${data.database}\`.\`${data.table}\``, '完整表名已复制');
+      break;
+
+    case 'copy-select':
+      await copyText(`SELECT * FROM \`${data.database}\`.\`${data.table}\` LIMIT 100;`, 'SELECT 语句已复制');
+      break;
+
     case 'drop-table':
       await handleDropTable(data);
       break;
@@ -331,7 +372,7 @@ const handleDropTable = async (data: any) => {
     );
     await SchemaAPI.dropTable(connectionStore.currentConnection.id, data.database, data.table);
     ElMessage.success('表已删除');
-    tableCache.delete(data.database);
+    tableCache.delete(tableCacheKey(data.database));
     await loadTables(data.database);
     if (databaseStore.currentTable === data.table) {
       databaseStore.setCurrentTable(null);

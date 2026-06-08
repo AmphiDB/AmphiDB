@@ -4,17 +4,20 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func setupImportTestDB(t *testing.T) *sql.DB {
 	dsn := os.Getenv("TEST_MYSQL_DSN")
 	if dsn == "" {
-		dsn = "root:password@tcp(localhost:3306)/"
+		t.Skip("TEST_MYSQL_DSN not set; skipping MySQL integration test")
 	}
 
 	db, err := sql.Open("mysql", dsn)
@@ -445,5 +448,93 @@ func TestImportEmptyJSON(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "没有数据") {
 		t.Errorf("期望错误消息包含'没有数据'，实际: %v", err)
+	}
+}
+
+func TestImportFromCSVTrimsHeaderMappingAndReportsKnownTotal(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("创建 sqlmock 失败: %v", err)
+	}
+	defer db.Close()
+
+	csvPath := "test_header_mapping.csv"
+	err = os.WriteFile(csvPath, []byte(" name , price , stock \nProduct A,10.50,100\nProduct B,20.00,50\n"), 0644)
+	if err != nil {
+		t.Fatalf("创建测试 CSV 文件失败: %v", err)
+	}
+	defer os.Remove(csvPath)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `test_db`.`test_products` (`name`, `price`, `stock`) VALUES (?, ?, ?), (?, ?, ?)")).
+		WithArgs("Product A", "10.50", "100", "Product B", "20.00", "50").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	var progress []string
+	importer := NewImporter(db)
+	result, err := importer.ImportFromCSV("test_db", "test_products", csvPath, ColumnMapping{}, func(current, total int) {
+		progress = append(progress, fmt.Sprintf("%d/%d", current, total))
+	})
+	if err != nil {
+		t.Fatalf("导入 CSV 失败: %v", err)
+	}
+
+	if result.TotalRows != 2 || result.SuccessRows != 2 || result.FailedRows != 0 {
+		t.Fatalf("导入结果不正确: %+v", result)
+	}
+	if len(progress) == 0 || progress[len(progress)-1] != "2/2" {
+		t.Fatalf("期望最终进度为 2/2，实际 %v", progress)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("SQL 期望未满足: %v", err)
+	}
+}
+
+func TestImportFromJSONStreamsRowsAndUsesBatchInsert(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("创建 sqlmock 失败: %v", err)
+	}
+	defer db.Close()
+
+	jsonPath := "test_stream_import.json"
+	err = os.WriteFile(jsonPath, []byte(`[
+{"name":"Product A","price":10.5,"stock":100},
+{"name":"Product B","price":20,"stock":50},
+{"name":"Product C","price":15.75,"stock":75}
+]`), 0644)
+	if err != nil {
+		t.Fatalf("创建测试 JSON 文件失败: %v", err)
+	}
+	defer os.Remove(jsonPath)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `test_db`.`test_products` (`name`, `price`, `stock`) VALUES (?, ?, ?), (?, ?, ?), (?, ?, ?)")).
+		WithArgs("Product A", 10.5, float64(100), "Product B", float64(20), float64(50), "Product C", 15.75, float64(75)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+
+	var progress []string
+	importer := NewImporter(db)
+	mapping := ColumnMapping{
+		FileColumns:  []string{"name", "price", "stock"},
+		TableColumns: []string{"name", "price", "stock"},
+	}
+	result, err := importer.ImportFromJSON("test_db", "test_products", jsonPath, mapping, func(current, total int) {
+		progress = append(progress, fmt.Sprintf("%d/%d", current, total))
+	})
+	if err != nil {
+		t.Fatalf("导入 JSON 失败: %v", err)
+	}
+
+	if result.TotalRows != 3 || result.SuccessRows != 3 || result.FailedRows != 0 {
+		t.Fatalf("导入结果不正确: %+v", result)
+	}
+	if len(progress) == 0 || progress[len(progress)-1] != "3/3" {
+		t.Fatalf("期望最终进度为 3/3，实际 %v", progress)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("SQL 期望未满足: %v", err)
 	}
 }

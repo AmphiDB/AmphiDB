@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="modelValue"
     :title="mode === 'insert' ? '插入文档' : '编辑文档'"
-    width="700px"
+    width="min(820px, 92vw)"
     :close-on-click-modal="false"
     @update:model-value="emit('update:modelValue', $event)"
     @closed="onDialogClosed"

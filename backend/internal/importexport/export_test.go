@@ -16,7 +16,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	// 使用环境变量或默认值连接测试数据库
 	dsn := os.Getenv("TEST_MYSQL_DSN")
 	if dsn == "" {
-		dsn = "root:password@tcp(localhost:3306)/"
+		t.Skip("TEST_MYSQL_DSN not set; skipping MySQL integration test")
 	}
 
 	db, err := sql.Open("mysql", dsn)
@@ -323,5 +323,96 @@ func TestExportInvalidParameters(t *testing.T) {
 				t.Errorf("期望错误 = %v, 实际错误 = %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestCanUseCursorExport(t *testing.T) {
+	tests := []struct {
+		name  string
+		query repository.DataQuery
+		want  bool
+	}{
+		{
+			name:  "no offset or custom order",
+			query: repository.DataQuery{},
+			want:  true,
+		},
+		{
+			name: "offset falls back to bounded pagination",
+			query: repository.DataQuery{
+				Offset: 20,
+			},
+			want: false,
+		},
+		{
+			name: "custom order falls back to bounded pagination",
+			query: repository.DataQuery{
+				OrderBy: []repository.OrderBy{{Column: "created_at", Direction: "DESC"}},
+			},
+			want: false,
+		},
+		{
+			name: "matching primary-key order can use cursor",
+			query: repository.DataQuery{
+				OrderBy: []repository.OrderBy{{Column: "id", Direction: "ASC"}},
+			},
+			want: true,
+		},
+		{
+			name: "selected columns without primary key fall back",
+			query: repository.DataQuery{
+				Columns: []string{"name", "email"},
+			},
+			want: false,
+		},
+		{
+			name: "selected columns with primary key can use cursor",
+			query: repository.DataQuery{
+				Columns: []string{"id", "name"},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canUseCursorExport(tt.query, "id"); got != tt.want {
+				t.Fatalf("canUseCursorExport() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildCursorQuery(t *testing.T) {
+	base := repository.DataQuery{
+		Database: "app",
+		Table:    "users",
+		Filters: []repository.Filter{
+			{Column: "status", Operator: "=", Value: "active"},
+		},
+		Limit: 2500,
+	}
+
+	first := buildCursorQuery(base, "id", nil, false, 1000)
+	if first.Limit != 1000 || first.Offset != 0 {
+		t.Fatalf("unexpected first batch limit/offset: %+v", first)
+	}
+	if len(first.Filters) != 1 {
+		t.Fatalf("first batch should keep only base filters, got %+v", first.Filters)
+	}
+	if len(first.OrderBy) != 1 || first.OrderBy[0].Column != "id" || first.OrderBy[0].Direction != "ASC" {
+		t.Fatalf("first batch should order by cursor column, got %+v", first.OrderBy)
+	}
+
+	next := buildCursorQuery(base, "id", 100, true, 500)
+	if next.Limit != 500 {
+		t.Fatalf("unexpected next batch limit: %d", next.Limit)
+	}
+	if len(next.Filters) != 2 {
+		t.Fatalf("next batch should include base and cursor filters, got %+v", next.Filters)
+	}
+	cursorFilter := next.Filters[1]
+	if cursorFilter.Column != "id" || cursorFilter.Operator != ">" || cursorFilter.Value != 100 {
+		t.Fatalf("unexpected cursor filter: %+v", cursorFilter)
 	}
 }

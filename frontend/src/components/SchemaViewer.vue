@@ -3,22 +3,67 @@
     <el-card v-loading="loading" shadow="never">
       <template #header>
         <div class="card-header">
-          <span class="table-title">
+          <div class="table-title">
             <el-icon><Document /></el-icon>
-            {{ schema?.name || '表结构' }}
-          </span>
-          
+            <span>{{ schema?.name || '表结构' }}</span>
+          </div>
+          <div v-if="schema" class="header-actions">
+            <el-tooltip content="复制表名" placement="bottom">
+              <el-button
+                :icon="CopyDocument"
+                size="small"
+                text
+                @click="copyTableName"
+              >
+                表名
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="复制 CREATE TABLE DDL" placement="bottom">
+              <el-button
+                :icon="CopyDocument"
+                size="small"
+                type="primary"
+                plain
+                @click="copyDDL"
+              >
+                复制 DDL
+              </el-button>
+            </el-tooltip>
+          </div>
         </div>
       </template>
 
       <el-empty v-if="!schema && !loading" description="请选择一个表查看结构" />
 
       <div v-else-if="schema" class="schema-content">
+        <div class="summary-strip">
+          <div
+            v-for="item in summaryItems"
+            :key="item.label"
+            class="summary-item"
+          >
+            <span class="summary-label">{{ item.label }}</span>
+            <span class="summary-value">{{ item.value }}</span>
+          </div>
+        </div>
+
         <!-- 表信息 -->
         <div class="info-section">
-          <h4>表信息</h4>
-          <el-descriptions :column="3" border>
-            <el-descriptions-item label="表名">{{ schema.name }}</el-descriptions-item>
+          <div class="section-header">
+            <h4>表信息</h4>
+            <el-button
+              :icon="CopyDocument"
+              size="small"
+              text
+              @click="copyTableName"
+            >
+              复制表名
+            </el-button>
+          </div>
+          <el-descriptions :column="3" size="small">
+            <el-descriptions-item label="表名">
+              <span class="table-name-text">{{ schema.name }}</span>
+            </el-descriptions-item>
             <el-descriptions-item label="引擎">{{ schema.engine }}</el-descriptions-item>
             <el-descriptions-item label="字符集">{{ schema.charset }}</el-descriptions-item>
             <el-descriptions-item label="注释" :span="3">
@@ -29,8 +74,29 @@
 
         <!-- 列信息 -->
         <div class="info-section">
-          <h4>列信息</h4>
-          <el-table :data="schema.columns" border stripe>
+          <div class="section-header">
+            <div class="section-title">
+              <h4>列信息</h4>
+              <span class="section-count">
+                {{ filteredColumns.length }} / {{ schema.columns.length }}
+              </span>
+            </div>
+            <el-input
+              v-model="columnKeyword"
+              class="column-search"
+              placeholder="筛选列名、类型、注释"
+              clearable
+              size="small"
+              :prefix-icon="Search"
+            />
+          </div>
+          <el-table
+            :data="filteredColumns"
+            stripe
+            size="small"
+            class="schema-table"
+            empty-text="没有匹配的列"
+          >
             <el-table-column prop="name" label="列名" width="180" />
             <el-table-column prop="type" label="数据类型" width="150" />
             <el-table-column label="允许NULL" width="100" align="center">
@@ -59,16 +125,22 @@
 
         <!-- 主键信息 -->
         <div v-if="schema.primaryKey && schema.primaryKey.columns.length > 0" class="info-section">
-          <h4>主键</h4>
-          <el-tag v-for="col in schema.primaryKey.columns" :key="col" type="danger" class="key-tag">
-            {{ col }}
-          </el-tag>
+          <div class="section-header">
+            <h4>主键</h4>
+          </div>
+          <div class="tag-list">
+            <el-tag v-for="col in schema.primaryKey.columns" :key="col" type="danger" class="key-tag">
+              {{ col }}
+            </el-tag>
+          </div>
         </div>
 
         <!-- 索引信息 -->
         <div v-if="schema.indexes && schema.indexes.length > 0" class="info-section">
-          <h4>索引</h4>
-          <el-table :data="schema.indexes" border stripe>
+          <div class="section-header">
+            <h4>索引</h4>
+          </div>
+          <el-table :data="schema.indexes" stripe size="small" class="schema-table">
             <el-table-column prop="name" label="索引名" width="200" />
             <el-table-column prop="type" label="类型" width="120">
               <template #default="{ row }">
@@ -89,8 +161,10 @@
 
         <!-- 外键信息 -->
         <div v-if="schema.foreignKeys && schema.foreignKeys.length > 0" class="info-section">
-          <h4>外键约束</h4>
-          <el-table :data="schema.foreignKeys" border stripe>
+          <div class="section-header">
+            <h4>外键约束</h4>
+          </div>
+          <el-table :data="schema.foreignKeys" stripe size="small" class="schema-table">
             <el-table-column prop="name" label="约束名" width="200" />
             <el-table-column label="列" width="150">
               <template #default="{ row }">
@@ -114,18 +188,18 @@
 
         <!-- DDL 语句 -->
         <div class="info-section">
-          <h4>
-            CREATE TABLE DDL
+          <div class="section-header">
+            <h4>CREATE TABLE DDL</h4>
             <el-button 
               :icon="CopyDocument" 
               size="small" 
-              text 
+              type="primary"
+              plain
               @click="copyDDL"
-              style="margin-left: 10px"
             >
-              复制
+              复制 DDL
             </el-button>
-          </h4>
+          </div>
           <el-input
             v-model="ddl"
             type="textarea"
@@ -140,19 +214,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { 
   Document, 
-  Refresh, 
-  Edit, 
   Check, 
-  CopyDocument 
+  CopyDocument,
+  Search
 } from '@element-plus/icons-vue';
-import { useConnectionStore } from '../stores/connection';
-import { useDatabaseStore } from '../stores/database';
 import { SchemaAPI } from '../api';
-import type { TableSchema } from '../types/api';
+import type { Column, TableSchema } from '../types/api';
 
 // Props
 interface Props {
@@ -163,19 +234,43 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Stores (保留用于其他用途)
-const connectionStore = useConnectionStore();
-const databaseStore = useDatabaseStore();
+defineEmits<{
+  edit: [schema: TableSchema]
+}>();
 
 // State
 const loading = ref(false);
 const schema = ref<TableSchema | null>(null);
 const ddl = ref('');
+const columnKeyword = ref('');
+let schemaRequestToken = 0;
 
-// Emit
-const emit = defineEmits<{
-  edit: [schema: TableSchema]
-}>();
+const filteredColumns = computed<Column[]>(() => {
+  if (!schema.value) return [];
+  const keyword = columnKeyword.value.trim().toLowerCase();
+  if (!keyword) return schema.value.columns;
+
+  return schema.value.columns.filter((column) => {
+    return [
+      column.name,
+      column.type,
+      column.comment,
+      String(column.defaultValue ?? ''),
+    ].some((value) => value.toLowerCase().includes(keyword));
+  });
+});
+
+const summaryItems = computed(() => {
+  if (!schema.value) return [];
+
+  return [
+    { label: '引擎', value: schema.value.engine || '-' },
+    { label: '字符集', value: schema.value.charset || '-' },
+    { label: '列', value: schema.value.columns.length },
+    { label: '索引', value: schema.value.indexes?.length || 0 },
+    { label: '外键', value: schema.value.foreignKeys?.length || 0 },
+  ];
+});
 
 // 获取索引类型标签颜色
 const getIndexTypeTag = (type: string) => {
@@ -193,6 +288,9 @@ const getIndexTypeTag = (type: string) => {
 
 // 加载表结构
 const loadSchema = async () => {
+  const requestToken = ++schemaRequestToken;
+  const requestDatabase = props.database;
+  const requestTable = props.table;
   if (!props.profileId || !props.database || !props.table) {
     schema.value = null;
     ddl.value = '';
@@ -204,32 +302,42 @@ const loadSchema = async () => {
     // 加载表结构
     const tableSchema = await SchemaAPI.getTableSchema(
       props.profileId,
-      props.database,
-      props.table
+      requestDatabase,
+      requestTable
     );
+    if (requestToken !== schemaRequestToken || requestDatabase !== props.database || requestTable !== props.table) return;
     schema.value = tableSchema;
 
     // 加载 DDL
     const tableDDL = await SchemaAPI.getCreateTableDDL(
       props.profileId,
-      props.database,
-      props.table
+      requestDatabase,
+      requestTable
     );
+    if (requestToken !== schemaRequestToken || requestDatabase !== props.database || requestTable !== props.table) return;
     ddl.value = tableDDL;
   } catch (error: any) {
+    if (requestToken !== schemaRequestToken || requestDatabase !== props.database || requestTable !== props.table) return;
     ElMessage.error(error.message || '加载表结构失败');
     console.error('Failed to load schema:', error);
     schema.value = null;
     ddl.value = '';
   } finally {
-    loading.value = false;
+    if (requestToken === schemaRequestToken) {
+      loading.value = false;
+    }
   }
 };
 
-// 处理编辑
-const handleEdit = () => {
-  if (schema.value) {
-    emit('edit', schema.value);
+// 复制表名
+const copyTableName = async () => {
+  if (!schema.value) return;
+
+  try {
+    await navigator.clipboard.writeText(schema.value.name);
+    ElMessage.success('表名已复制到剪贴板');
+  } catch (error) {
+    ElMessage.error('复制失败');
   }
 };
 
@@ -250,17 +358,9 @@ onMounted(() => {
 
 // 监听 props 变化
 watch(() => [props.profileId, props.database, props.table], () => {
+  columnKeyword.value = '';
   loadSchema();
 }, { immediate: false });
-
-// 监听当前表变化
-watch(
-  () => [databaseStore.currentDatabase, databaseStore.currentTable],
-  () => {
-    loadSchema();
-  },
-  { immediate: true }
-);
 </script>
 
 <style scoped>
@@ -273,6 +373,7 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 .table-title {
@@ -282,21 +383,78 @@ watch(
   font-size: 16px;
   font-weight: 500;
   color: #303133;
+  min-width: 0;
+}
+
+.table-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .schema-content {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
-.info-section h4 {
-  margin: 0 0 12px 0;
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.summary-item {
+  min-width: 0;
+  padding: 10px 14px;
+  border-right: 1px solid #ebeef5;
+}
+
+.summary-item:last-child {
+  border-right: 0;
+}
+
+.summary-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.summary-value {
+  display: block;
+  overflow: hidden;
+  color: #303133;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.section-header h4 {
+  margin: 0;
   font-size: 14px;
   font-weight: 500;
   color: #606266;
@@ -304,9 +462,29 @@ watch(
   align-items: center;
 }
 
+.section-count {
+  font-size: 12px;
+  color: #909399;
+}
+
+.column-search {
+  width: 240px;
+}
+
+.table-name-text {
+  font-weight: 500;
+  color: #303133;
+}
+
 .text-muted {
   color: #909399;
   font-style: italic;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .key-tag,
@@ -320,11 +498,47 @@ watch(
   font-size: 13px;
 }
 
+.schema-table {
+  width: 100%;
+}
+
 :deep(.el-card__body) {
   padding: 20px;
 }
 
+:deep(.el-card__header) {
+  padding: 12px 20px;
+}
+
 :deep(.el-descriptions__label) {
   font-weight: 500;
+}
+
+:deep(.schema-table .el-table__cell) {
+  padding: 7px 0;
+}
+
+@media (max-width: 900px) {
+  .summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-item {
+    border-right: 0;
+    border-bottom: 1px solid #ebeef5;
+  }
+
+  .summary-item:nth-last-child(-n + 1) {
+    border-bottom: 0;
+  }
+
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .column-search {
+    width: 100%;
+  }
 }
 </style>

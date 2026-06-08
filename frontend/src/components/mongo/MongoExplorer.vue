@@ -121,7 +121,7 @@
     <el-dialog
       v-model="createCollDialogVisible"
       title="新建集合"
-      width="400px"
+      width="min(520px, 86vw)"
       @closed="newCollName = ''"
     >
       <el-form @submit.prevent="confirmCreateCollection">

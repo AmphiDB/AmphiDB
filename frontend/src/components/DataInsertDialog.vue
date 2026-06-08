@@ -2,25 +2,42 @@
   <el-dialog
     v-model="visible"
     title="插入新行"
-    width="600px"
+    width="min(860px, 92vw)"
+    class="insert-row-dialog"
     :close-on-click-modal="false"
     @close="handleClose"
   >
+    <div class="insert-summary">
+      <div>
+        <div class="summary-label">目标表</div>
+        <div class="summary-title">{{ database }}.{{ table }}</div>
+      </div>
+      <div class="summary-stats">
+        <span>{{ editableColumns.length }} 个字段</span>
+        <span>{{ requiredColumnCount }} 个必填</span>
+        <span>{{ autoIncrementCount }} 个自增</span>
+      </div>
+    </div>
+
     <el-form
       ref="formRef"
       :model="formData"
       :rules="rules"
-      label-width="120px"
+      label-position="top"
+      class="insert-form"
       v-loading="loading"
     >
-      <el-form-item
+      <div class="insert-grid">
+        <el-form-item
         v-for="column in columns"
         :key="column.name"
         :label="column.name"
         :prop="column.name"
+        class="insert-field"
+        :class="{ 'wide-field': isTextType(column.type) || isEnumType(column.type) }"
       >
         <template #label>
-          <span>{{ column.name }}</span>
+          <span class="field-label-text">{{ column.name }}</span>
           <el-tooltip v-if="column.comment" :content="column.comment" placement="top">
             <el-icon style="margin-left: 4px"><QuestionFilled /></el-icon>
           </el-tooltip>
@@ -121,24 +138,31 @@
         <div class="field-info">
           <span class="field-type">{{ column.type }}</span>
           <span v-if="!column.nullable" class="field-required">必填</span>
+          <span v-else class="field-nullable">可空</span>
           <span v-if="column.defaultValue" class="field-default">
             默认: {{ column.defaultValue }}
           </span>
         </div>
       </el-form-item>
+      </div>
     </el-form>
 
     <template #footer>
-      <el-button @click="handleClose" size="small">取消</el-button>
-      <el-button type="primary" @click="handleSubmit" :loading="loading" size="small">
-        插入
-      </el-button>
+      <div class="dialog-footer insert-footer">
+        <span class="footer-hint">自增字段会自动跳过，空值字段不会写入。</span>
+        <div class="footer-actions">
+          <el-button @click="handleClose" size="small">取消</el-button>
+          <el-button type="primary" @click="handleSubmit" :loading="loading" size="small">
+            插入行
+          </el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue';
+import { computed, ref, reactive, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { QuestionFilled } from '@element-plus/icons-vue';
 import type { Column, ForeignKey } from '../types/api';
@@ -166,6 +190,9 @@ const formRef = ref<any>(null);
 const formData = reactive<Record<string, any>>({});
 const foreignKeyOptions = reactive<Record<string, Array<{ label: string; value: any }>>>({});
 const foreignKeyLoading = reactive<Record<string, boolean>>({});
+const editableColumns = computed(() => props.columns.filter(column => !column.autoIncrement));
+const requiredColumnCount = computed(() => props.columns.filter(column => !column.nullable && !column.autoIncrement).length);
+const autoIncrementCount = computed(() => props.columns.filter(column => column.autoIncrement).length);
 
 // 表单验证规则
 const rules = reactive<Record<string, any>>({});
@@ -382,29 +409,151 @@ const handleClose = () => {
 </script>
 
 <style scoped>
+.insert-row-dialog {
+  --dialog-width: 860px;
+}
+
+.insert-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.summary-label {
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.summary-title {
+  max-width: 420px;
+  overflow: hidden;
+  color: #303133;
+  font-family: Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.summary-stats span {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  color: #606266;
+  font-size: 12px;
+}
+
+.insert-form {
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.insert-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.insert-field {
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 10px;
+  border: 1px solid #eef0f4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.field-label-text {
+  font-weight: 600;
+  color: #303133;
+}
+
 .field-info {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 12px;
   color: #909399;
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.field-info span {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #f5f7fa;
+  line-height: 18px;
 }
 
 .field-type {
-  color: #909399;
+  color: #606266;
 }
 
 .field-required {
   color: #f56c6c;
+  background: #fef0f0 !important;
+}
+
+.field-nullable {
+  color: #909399;
 }
 
 .field-default {
   color: #67c23a;
+  background: #f0f9eb !important;
 }
 
 .bigint-hint {
   font-size: 10px;
   color: #909399;
   font-style: italic;
+}
+
+.insert-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.footer-hint {
+  color: #909399;
+  font-size: 12px;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .insert-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .insert-summary,
+  .insert-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

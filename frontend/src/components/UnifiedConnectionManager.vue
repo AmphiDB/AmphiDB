@@ -9,25 +9,43 @@
         </el-button>
       </div>
 
+      <div class="list-tools">
+        <el-input
+          v-model="searchKeyword"
+          size="small"
+          clearable
+          placeholder="搜索名称、主机或用户"
+          class="search-input"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+      </div>
+
       <!-- DB type filter tabs -->
       <div class="type-tabs">
         <el-radio-group v-model="filterType" size="small">
-          <el-radio-button value="all">全部</el-radio-button>
-          <el-radio-button value="mysql">MySQL</el-radio-button>
-          <el-radio-button value="mongodb">MongoDB</el-radio-button>
+          <el-radio-button value="all">全部 {{ profileCounts.all }}</el-radio-button>
+          <el-radio-button value="mysql">MySQL {{ profileCounts.mysql }}</el-radio-button>
+          <el-radio-button value="mongodb">MongoDB {{ profileCounts.mongodb }}</el-radio-button>
         </el-radio-group>
       </div>
 
       <div class="profile-list" v-loading="loadingList">
         <div v-if="filteredProfiles.length === 0" class="list-empty">
-          <el-empty description="暂无连接配置" :image-size="60" />
+          <el-empty :description="emptyListText" :image-size="60">
+            <el-button v-if="!hasProfiles" type="primary" size="small" @click="handleCreate">
+              新建连接
+            </el-button>
+          </el-empty>
         </div>
 
         <div
           v-for="item in filteredProfiles"
           :key="item.key"
           class="profile-item"
-          :class="{ active: selectedKey === item.key }"
+          :class="{ active: selectedKey === item.key, connected: item.connected }"
           @click="handleSelect(item)"
         >
           <div class="item-left">
@@ -40,9 +58,38 @@
             </div>
           </div>
           <div class="item-right">
-            <el-tag :type="item.connected ? 'success' : 'info'" size="small">
+            <el-tag :type="item.connected ? 'success' : 'info'" size="small" effect="plain" class="status-tag">
               {{ item.connected ? '已连接' : '未连接' }}
             </el-tag>
+            <div class="row-actions" @click.stop>
+              <el-tooltip :content="item.connected ? '断开' : '连接'" placement="top" :show-after="300">
+                <el-button
+                  text
+                  circle
+                  size="small"
+                  :type="item.connected ? 'warning' : 'primary'"
+                  :loading="connectingKey === item.key"
+                  @click.stop="item.connected ? handleDisconnect(item) : handleConnect(item)"
+                >
+                  <el-icon><component :is="item.connected ? SwitchButton : Link" /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <el-dropdown trigger="click" @command="handleRowCommand($event, item)">
+                <el-button text circle size="small" class="more-button" @click.stop>
+                  <el-icon><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">
+                      <el-icon><Edit /></el-icon>编辑
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" :disabled="item.connected">
+                      <el-icon><Delete /></el-icon>删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </div>
         </div>
       </div>
@@ -181,6 +228,14 @@
           <span class="panel-title">{{ selectedItem.name }}</span>
         </div>
         <div class="detail-panel">
+          <div class="detail-summary">
+            <div class="detail-title">
+              {{ selectedItem.connected ? '连接已打开' : '连接未打开' }}
+            </div>
+            <div class="detail-copy">
+              {{ selectedItem.connected ? '可断开连接，或继续编辑此配置。' : '连接后进入对应工作台；也可以先编辑配置。' }}
+            </div>
+          </div>
           <div class="detail-info">
             <el-descriptions :column="1" border size="small">
               <el-descriptions-item label="类型">
@@ -217,7 +272,9 @@
 
       <template v-else>
         <div class="right-empty">
-          <el-empty description="选择左侧连接查看详情，或新建连接" :image-size="80" />
+          <el-empty description="选择连接查看详情，或新建连接" :image-size="80">
+            <el-button type="primary" @click="handleCreate">新建连接</el-button>
+          </el-empty>
         </div>
       </template>
     </div>
@@ -228,7 +285,7 @@
 import { ref, computed, reactive, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Close, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Plus, Close, CircleCheck, CircleClose, Search, Link, SwitchButton, MoreFilled, Edit, Delete } from '@element-plus/icons-vue'
 import type { FormInstance } from 'element-plus'
 import { useConnectionStore } from '../stores/connection'
 import { useMongoConnectionStore } from '../stores/mongoConnection'
@@ -254,6 +311,7 @@ interface ProfileItem {
 
 const loadingList = ref(false)
 const filterType = ref<'all' | 'mysql' | 'mongodb'>('all')
+const searchKeyword = ref('')
 
 const mysqlItems = computed<ProfileItem[]>(() =>
   (mysqlStore.profiles || []).map(p => ({
@@ -280,11 +338,40 @@ const mongoItems = computed<ProfileItem[]>(() =>
 )
 
 const allProfiles = computed<ProfileItem[]>(() => [...mysqlItems.value, ...mongoItems.value])
+const hasProfiles = computed(() => allProfiles.value.length > 0)
+const profileCounts = computed(() => ({
+  all: allProfiles.value.length,
+  mysql: mysqlItems.value.length,
+  mongodb: mongoItems.value.length,
+}))
 
 const filteredProfiles = computed<ProfileItem[]>(() => {
-  if (filterType.value === 'mysql') return mysqlItems.value
-  if (filterType.value === 'mongodb') return mongoItems.value
-  return allProfiles.value
+  const source = filterType.value === 'mysql'
+    ? mysqlItems.value
+    : filterType.value === 'mongodb'
+      ? mongoItems.value
+      : allProfiles.value
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (!keyword) return source
+  return source.filter(item => {
+    const raw = item.raw as Partial<ConnectionProfile & MongoConnectionProfile>
+    return [
+      item.name,
+      item.hostLabel,
+      item.dbType,
+      raw.host,
+      raw.username,
+      raw.database,
+      raw.authDb,
+      raw.uri,
+    ].some(value => String(value || '').toLowerCase().includes(keyword))
+  })
+})
+
+const emptyListText = computed(() => {
+  if (!hasProfiles.value) return '暂无连接，先新建一个配置'
+  if (searchKeyword.value.trim()) return '没有匹配的连接'
+  return '当前类型暂无连接'
 })
 
 // ── Selection ──────────────────────────────────────────────────────────────────
@@ -490,6 +577,11 @@ const handleDelete = async (item: ProfileItem) => {
   } catch (e: any) { if (e !== 'cancel') ElMessage.error(e?.message || '删除失败') }
 }
 
+const handleRowCommand = (command: string | number | object, item: ProfileItem) => {
+  if (command === 'edit') handleEdit(item)
+  if (command === 'delete') handleDelete(item)
+}
+
 // ── Load ───────────────────────────────────────────────────────────────────────
 const loadMysql = async () => {
   try { const ps = await ConnectionAPI.listProfiles(); mysqlStore.setProfiles(ps || []) } catch { mysqlStore.setProfiles([]) }
@@ -509,19 +601,34 @@ onMounted(async () => {
 .left-panel { width: 300px; flex-shrink: 0; border-right: 1px solid #e4e7ed; display: flex; flex-direction: column; background: #fff; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; border-bottom: 1px solid #e4e7ed; flex-shrink: 0; }
 .panel-title { font-size: 15px; font-weight: 600; color: #303133; }
+.list-tools { padding: 10px 12px 8px; border-bottom: 1px solid #f0f2f5; flex-shrink: 0; }
+.search-input :deep(.el-input__wrapper) { border-radius: 4px; }
 .type-tabs { padding: 8px 12px; border-bottom: 1px solid #f0f2f5; flex-shrink: 0; }
+.type-tabs :deep(.el-radio-group) { display: flex; width: 100%; }
+.type-tabs :deep(.el-radio-button) { flex: 1; }
+.type-tabs :deep(.el-radio-button__inner) { width: 100%; padding: 7px 8px; font-size: 12px; }
 .profile-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 .list-empty { padding: 20px; }
 
-.profile-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f5f7fa; transition: background 0.15s; }
+.profile-item { position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 8px 10px 8px 14px; cursor: pointer; border-bottom: 1px solid #f5f7fa; transition: background 0.15s; }
+.profile-item::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 2px 2px 0; background: transparent; }
 .profile-item:hover { background: #f5f7fa; }
 .profile-item.active { background: #ecf5ff; }
-.item-left { display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.profile-item.connected::before { background: #67c23a; }
+.profile-item.connected .item-name { color: #1f7a3a; font-weight: 600; }
+.profile-item.connected.active::before { background: #409eff; }
+.item-left { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
 .db-tag { flex-shrink: 0; }
-.item-info { overflow: hidden; }
+.item-info { min-width: 0; overflow: hidden; }
 .item-name { font-size: 13px; font-weight: 500; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-host { font-size: 11px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-right { flex-shrink: 0; margin-left: 8px; }
+.item-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: 8px; }
+.status-tag { max-width: 54px; }
+.row-actions { display: flex; align-items: center; gap: 2px; opacity: 0.72; transition: opacity 0.15s; }
+.profile-item:hover .row-actions,
+.profile-item.active .row-actions { opacity: 1; }
+.row-actions :deep(.el-button) { width: 24px; height: 24px; padding: 0; }
+.more-button { color: #606266; }
 
 /* ── Right panel ── */
 .right-panel { flex: 1; overflow-y: auto; background: #fff; display: flex; flex-direction: column; }
@@ -538,5 +645,8 @@ onMounted(async () => {
 
 /* ── Detail panel ── */
 .detail-panel { padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.detail-summary { padding: 12px 14px; border: 1px solid #e4e7ed; border-radius: 4px; background: #fafafa; }
+.detail-title { font-size: 14px; font-weight: 600; color: #303133; margin-bottom: 4px; }
+.detail-copy { font-size: 12px; color: #606266; }
 .detail-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 </style>

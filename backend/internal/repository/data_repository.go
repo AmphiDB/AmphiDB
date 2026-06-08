@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -49,6 +50,11 @@ type DataResult struct {
 
 // QueryData 执行参数化查询并返回结果
 func (dr *DataRepository) QueryData(query DataQuery) (*DataResult, error) {
+	return dr.QueryDataContext(context.Background(), query)
+}
+
+// QueryDataContext 执行参数化查询并返回结果，支持取消
+func (dr *DataRepository) QueryDataContext(ctx context.Context, query DataQuery) (*DataResult, error) {
 	// 构建 SELECT 语句
 	selectClause := "*"
 	if len(query.Columns) > 0 {
@@ -99,7 +105,7 @@ func (dr *DataRepository) QueryData(query DataQuery) (*DataResult, error) {
 	}
 
 	// 执行查询
-	rows, err := dr.db.Query(sqlQuery, args...)
+	rows, err := dr.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("执行查询失败: %w", err)
 	}
@@ -169,7 +175,7 @@ func (dr *DataRepository) QueryData(query DataQuery) (*DataResult, error) {
 	}
 
 	// 获取总行数
-	total, err := dr.GetRowCount(query.Database, query.Table, query.Filters)
+	total, err := dr.GetRowCountContext(ctx, query.Database, query.Table, query.Filters)
 	if err != nil {
 		return nil, fmt.Errorf("获取总行数失败: %w", err)
 	}
@@ -183,6 +189,11 @@ func (dr *DataRepository) QueryData(query DataQuery) (*DataResult, error) {
 
 // GetRowCount 获取表的行数（支持筛选）
 func (dr *DataRepository) GetRowCount(database, table string, filters []Filter) (int64, error) {
+	return dr.GetRowCountContext(context.Background(), database, table, filters)
+}
+
+// GetRowCountContext 获取表的行数（支持筛选和取消）
+func (dr *DataRepository) GetRowCountContext(ctx context.Context, database, table string, filters []Filter) (int64, error) {
 	sqlQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s",
 		escapeIdentifier(database),
 		escapeIdentifier(table))
@@ -198,7 +209,7 @@ func (dr *DataRepository) GetRowCount(database, table string, filters []Filter) 
 	}
 
 	var count int64
-	err := dr.db.QueryRow(sqlQuery, args...).Scan(&count)
+	err := dr.db.QueryRowContext(ctx, sqlQuery, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("查询行数失败: %w", err)
 	}

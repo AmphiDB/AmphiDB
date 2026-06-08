@@ -1,6 +1,7 @@
 package importexport
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
@@ -15,6 +16,8 @@ type Exporter struct {
 	db *sql.DB
 }
 
+const exportBatchSize = 1000
+
 // NewExporter 创建新的 Exporter 实例
 func NewExporter(db *sql.DB) *Exporter {
 	return &Exporter{db: db}
@@ -22,6 +25,11 @@ func NewExporter(db *sql.DB) *Exporter {
 
 // ExportToSQL 导出数据为 SQL INSERT 语句
 func (e *Exporter) ExportToSQL(database, table string, query repository.DataQuery, outputPath string, progressCallback func(current, total int)) error {
+	return e.ExportToSQLContext(context.Background(), database, table, query, outputPath, progressCallback)
+}
+
+// ExportToSQLContext 导出数据为 SQL INSERT 语句，支持取消
+func (e *Exporter) ExportToSQLContext(ctx context.Context, database, table string, query repository.DataQuery, outputPath string, progressCallback func(current, total int)) error {
 	if database == "" {
 		return fmt.Errorf("数据库名称不能为空")
 	}
@@ -42,20 +50,21 @@ func (e *Exporter) ExportToSQL(database, table string, query repository.DataQuer
 	// 设置查询参数以获取所有数据
 	query.Database = database
 	query.Table = table
-	if query.Limit == 0 {
-		query.Limit = 1000 // 分批处理，每批 1000 行
-	}
 
 	// 获取数据仓库
 	repo := repository.NewDataRepository(e.db)
 
 	// 获取总行数
-	totalRows, err := repo.GetRowCount(database, table, query.Filters)
+	totalRows, err := repo.GetRowCountContext(ctx, database, table, query.Filters)
 	if err != nil {
 		return fmt.Errorf("获取总行数失败: %w", err)
 	}
 
 	if totalRows == 0 {
+		return fmt.Errorf("没有数据可导出")
+	}
+	exportTotal := exportRowTotal(totalRows, query.Limit, query.Offset)
+	if exportTotal == 0 {
 		return fmt.Errorf("没有数据可导出")
 	}
 
@@ -64,24 +73,18 @@ func (e *Exporter) ExportToSQL(database, table string, query repository.DataQuer
 	if err != nil {
 		return fmt.Errorf("写入文件头失败: %w", err)
 	}
-	_, err = file.WriteString(fmt.Sprintf("-- Total rows: %d\n\n", totalRows))
+	_, err = file.WriteString(fmt.Sprintf("-- Total rows: %d\n\n", exportTotal))
 	if err != nil {
 		return fmt.Errorf("写入文件头失败: %w", err)
 	}
 
-	// 分批导出数据
 	processedRows := 0
-	for offset := 0; offset < int(totalRows); offset += query.Limit {
-		query.Offset = offset
-
-		// 查询数据
-		result, err := repo.QueryData(query)
-		if err != nil {
-			return fmt.Errorf("查询数据失败: %w", err)
-		}
-
+	err = e.forEachExportBatch(ctx, repo, database, table, query, exportTotal, func(result *repository.DataResult) error {
 		// 生成 INSERT 语句
 		for _, row := range result.Rows {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			insertSQL := e.generateInsertStatement(database, table, result.Columns, row)
 			_, err = file.WriteString(insertSQL + "\n")
 			if err != nil {
@@ -90,9 +93,13 @@ func (e *Exporter) ExportToSQL(database, table string, query repository.DataQuer
 
 			processedRows++
 			if progressCallback != nil {
-				progressCallback(processedRows, int(totalRows))
+				progressCallback(processedRows, exportTotal)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -100,6 +107,11 @@ func (e *Exporter) ExportToSQL(database, table string, query repository.DataQuer
 
 // ExportToCSV 导出数据为 CSV 格式
 func (e *Exporter) ExportToCSV(database, table string, query repository.DataQuery, outputPath string, progressCallback func(current, total int)) error {
+	return e.ExportToCSVContext(context.Background(), database, table, query, outputPath, progressCallback)
+}
+
+// ExportToCSVContext 导出数据为 CSV 格式，支持取消
+func (e *Exporter) ExportToCSVContext(ctx context.Context, database, table string, query repository.DataQuery, outputPath string, progressCallback func(current, total int)) error {
 	if database == "" {
 		return fmt.Errorf("数据库名称不能为空")
 	}
@@ -124,15 +136,12 @@ func (e *Exporter) ExportToCSV(database, table string, query repository.DataQuer
 	// 设置查询参数
 	query.Database = database
 	query.Table = table
-	if query.Limit == 0 {
-		query.Limit = 1000 // 分批处理
-	}
 
 	// 获取数据仓库
 	repo := repository.NewDataRepository(e.db)
 
 	// 获取总行数
-	totalRows, err := repo.GetRowCount(database, table, query.Filters)
+	totalRows, err := repo.GetRowCountContext(ctx, database, table, query.Filters)
 	if err != nil {
 		return fmt.Errorf("获取总行数失败: %w", err)
 	}
@@ -140,21 +149,16 @@ func (e *Exporter) ExportToCSV(database, table string, query repository.DataQuer
 	if totalRows == 0 {
 		return fmt.Errorf("没有数据可导出")
 	}
+	exportTotal := exportRowTotal(totalRows, query.Limit, query.Offset)
+	if exportTotal == 0 {
+		return fmt.Errorf("没有数据可导出")
+	}
 
 	// 写入列标题
 	firstBatch := true
 	processedRows := 0
 
-	// 分批导出数据
-	for offset := 0; offset < int(totalRows); offset += query.Limit {
-		query.Offset = offset
-
-		// 查询数据
-		result, err := repo.QueryData(query)
-		if err != nil {
-			return fmt.Errorf("查询数据失败: %w", err)
-		}
-
+	err = e.forEachExportBatch(ctx, repo, database, table, query, exportTotal, func(result *repository.DataResult) error {
 		// 写入列标题（仅第一批）
 		if firstBatch {
 			if err := writer.Write(result.Columns); err != nil {
@@ -165,6 +169,9 @@ func (e *Exporter) ExportToCSV(database, table string, query repository.DataQuer
 
 		// 写入数据行
 		for _, row := range result.Rows {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			record := make([]string, len(row))
 			for i, val := range row {
 				record[i] = e.formatValue(val)
@@ -175,9 +182,13 @@ func (e *Exporter) ExportToCSV(database, table string, query repository.DataQuer
 
 			processedRows++
 			if progressCallback != nil {
-				progressCallback(processedRows, int(totalRows))
+				progressCallback(processedRows, exportTotal)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -185,6 +196,11 @@ func (e *Exporter) ExportToCSV(database, table string, query repository.DataQuer
 
 // ExportToJSON 导出数据为 JSON 格式
 func (e *Exporter) ExportToJSON(database, table string, query repository.DataQuery, outputPath string, progressCallback func(current, total int)) error {
+	return e.ExportToJSONContext(context.Background(), database, table, query, outputPath, progressCallback)
+}
+
+// ExportToJSONContext 导出数据为 JSON 格式，支持取消
+func (e *Exporter) ExportToJSONContext(ctx context.Context, database, table string, query repository.DataQuery, outputPath string, progressCallback func(current, total int)) error {
 	if database == "" {
 		return fmt.Errorf("数据库名称不能为空")
 	}
@@ -205,20 +221,21 @@ func (e *Exporter) ExportToJSON(database, table string, query repository.DataQue
 	// 设置查询参数
 	query.Database = database
 	query.Table = table
-	if query.Limit == 0 {
-		query.Limit = 1000 // 分批处理
-	}
 
 	// 获取数据仓库
 	repo := repository.NewDataRepository(e.db)
 
 	// 获取总行数
-	totalRows, err := repo.GetRowCount(database, table, query.Filters)
+	totalRows, err := repo.GetRowCountContext(ctx, database, table, query.Filters)
 	if err != nil {
 		return fmt.Errorf("获取总行数失败: %w", err)
 	}
 
 	if totalRows == 0 {
+		return fmt.Errorf("没有数据可导出")
+	}
+	exportTotal := exportRowTotal(totalRows, query.Limit, query.Offset)
+	if exportTotal == 0 {
 		return fmt.Errorf("没有数据可导出")
 	}
 
@@ -228,21 +245,15 @@ func (e *Exporter) ExportToJSON(database, table string, query repository.DataQue
 		return fmt.Errorf("写入 JSON 开始标记失败: %w", err)
 	}
 
-	// 分批导出数据
 	processedRows := 0
 	firstRow := true
 
-	for offset := 0; offset < int(totalRows); offset += query.Limit {
-		query.Offset = offset
-
-		// 查询数据
-		result, err := repo.QueryData(query)
-		if err != nil {
-			return fmt.Errorf("查询数据失败: %w", err)
-		}
-
+	err = e.forEachExportBatch(ctx, repo, database, table, query, exportTotal, func(result *repository.DataResult) error {
 		// 转换为 JSON 对象
 		for _, row := range result.Rows {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			// 构建 JSON 对象
 			obj := make(map[string]interface{})
 			for i, col := range result.Columns {
@@ -270,9 +281,13 @@ func (e *Exporter) ExportToJSON(database, table string, query repository.DataQue
 			firstRow = false
 			processedRows++
 			if progressCallback != nil {
-				progressCallback(processedRows, int(totalRows))
+				progressCallback(processedRows, exportTotal)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// 写入 JSON 数组结束
@@ -282,6 +297,184 @@ func (e *Exporter) ExportToJSON(database, table string, query repository.DataQue
 	}
 
 	return nil
+}
+
+func (e *Exporter) forEachExportBatch(ctx context.Context, repo *repository.DataRepository, database, table string, query repository.DataQuery, exportTotal int, handleBatch func(*repository.DataResult) error) error {
+	query.Database = database
+	query.Table = table
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if primaryKey, ok, err := e.singlePrimaryKeyColumn(database, table); err != nil {
+		return fmt.Errorf("获取主键列失败: %w", err)
+	} else if ok && canUseCursorExport(query, primaryKey) {
+		return e.forEachCursorBatch(ctx, repo, query, primaryKey, exportTotal, handleBatch)
+	}
+
+	return e.forEachOffsetBatch(ctx, repo, query, exportTotal, handleBatch)
+}
+
+func (e *Exporter) forEachCursorBatch(ctx context.Context, repo *repository.DataRepository, query repository.DataQuery, primaryKey string, exportTotal int, handleBatch func(*repository.DataResult) error) error {
+	processedRows := 0
+	var lastCursor interface{}
+	hasCursor := false
+
+	for processedRows < exportTotal {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		batchLimit := minInt(exportBatchSize, exportTotal-processedRows)
+		batchQuery := buildCursorQuery(query, primaryKey, lastCursor, hasCursor, batchLimit)
+
+		result, err := repo.QueryDataContext(ctx, batchQuery)
+		if err != nil {
+			return fmt.Errorf("查询数据失败: %w", err)
+		}
+		if len(result.Rows) == 0 {
+			break
+		}
+
+		if err := handleBatch(result); err != nil {
+			return err
+		}
+
+		cursorIndex := columnIndex(result.Columns, primaryKey)
+		if cursorIndex < 0 {
+			return fmt.Errorf("游标列 %s 不在查询结果中", primaryKey)
+		}
+		lastRow := result.Rows[len(result.Rows)-1]
+		if cursorIndex >= len(lastRow) {
+			return fmt.Errorf("游标列 %s 数据缺失", primaryKey)
+		}
+		lastCursor = lastRow[cursorIndex]
+		hasCursor = true
+		processedRows += len(result.Rows)
+	}
+
+	return nil
+}
+
+func (e *Exporter) forEachOffsetBatch(ctx context.Context, repo *repository.DataRepository, query repository.DataQuery, exportTotal int, handleBatch func(*repository.DataResult) error) error {
+	processedRows := 0
+	baseOffset := query.Offset
+	for offset := 0; processedRows < exportTotal; offset += exportBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		batchQuery := query
+		batchQuery.Limit = minInt(exportBatchSize, exportTotal-processedRows)
+		batchQuery.Offset = baseOffset + offset
+
+		result, err := repo.QueryDataContext(ctx, batchQuery)
+		if err != nil {
+			return fmt.Errorf("查询数据失败: %w", err)
+		}
+		if len(result.Rows) == 0 {
+			break
+		}
+
+		if err := handleBatch(result); err != nil {
+			return err
+		}
+		processedRows += len(result.Rows)
+	}
+
+	return nil
+}
+
+func (e *Exporter) singlePrimaryKeyColumn(database, table string) (string, bool, error) {
+	rows, err := e.db.Query(`
+		SELECT COLUMN_NAME
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY'
+		ORDER BY ORDINAL_POSITION
+	`, database, table)
+	if err != nil {
+		return "", false, err
+	}
+	defer rows.Close()
+
+	var columns []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			return "", false, err
+		}
+		columns = append(columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		return "", false, err
+	}
+	if len(columns) != 1 {
+		return "", false, nil
+	}
+	return columns[0], true, nil
+}
+
+func canUseCursorExport(query repository.DataQuery, primaryKey string) bool {
+	if query.Offset > 0 {
+		return false
+	}
+	if len(query.Columns) > 0 && !containsColumn(query.Columns, primaryKey) {
+		return false
+	}
+	if len(query.OrderBy) == 0 {
+		return true
+	}
+	if len(query.OrderBy) != 1 {
+		return false
+	}
+	order := query.OrderBy[0]
+	return strings.EqualFold(order.Column, primaryKey) && strings.ToUpper(order.Direction) != "DESC"
+}
+
+func containsColumn(columns []string, target string) bool {
+	for _, column := range columns {
+		if strings.EqualFold(column, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildCursorQuery(base repository.DataQuery, primaryKey string, cursor interface{}, hasCursor bool, limit int) repository.DataQuery {
+	query := base
+	query.Offset = 0
+	query.Limit = limit
+	query.OrderBy = []repository.OrderBy{{Column: primaryKey, Direction: "ASC"}}
+	query.Filters = append([]repository.Filter{}, base.Filters...)
+	if hasCursor {
+		query.Filters = append(query.Filters, repository.Filter{
+			Column:   primaryKey,
+			Operator: ">",
+			Value:    cursor,
+		})
+	}
+	return query
+}
+
+func columnIndex(columns []string, target string) int {
+	for i, column := range columns {
+		if strings.EqualFold(column, target) {
+			return i
+		}
+	}
+	return -1
+}
+
+func exportRowTotal(totalRows int64, requestedLimit, offset int) int {
+	total := int(totalRows)
+	if offset > 0 {
+		total -= offset
+	}
+	if total <= 0 {
+		return 0
+	}
+	if requestedLimit > 0 && requestedLimit < total {
+		return requestedLimit
+	}
+	return total
 }
 
 // generateInsertStatement 生成 INSERT 语句

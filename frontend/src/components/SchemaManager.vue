@@ -24,7 +24,7 @@
     <el-dialog
       v-model="warningVisible"
       title="警告"
-      width="500px"
+      width="min(600px, 88vw)"
     >
       <el-alert
         type="warning"

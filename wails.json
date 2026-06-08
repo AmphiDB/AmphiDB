@@ -13,7 +13,7 @@
   "info": {
     "companyName": "AmphiDB",
     "productName": "AmphiDB",
-    "productVersion": "1.0.0",
+    "productVersion": "1.0.4",
     "copyright": "Copyright © 2026",
     "comments": "A modern MySQL/MariaDB/MongoDB database management tool"
   },
@@ -22,7 +22,7 @@
   "debianPackage": {
     "packageName": "AmphiDB",
     "packageDescription": "A modern MySQL/MariaDB/MongoDB database management tool",
-    "packageVersion": "1.0.0",
+    "packageVersion": "1.0.4",
     "maintainer": "renlongfei <rlf@gmail.com>",
     "homepage": "https://github.com/AmphiDB/AmphiDB"
   }

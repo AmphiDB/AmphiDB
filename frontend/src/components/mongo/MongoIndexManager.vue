@@ -47,7 +47,7 @@
     <el-dialog
       v-model="createDialogVisible"
       title="创建索引"
-      width="520px"
+      width="min(620px, 88vw)"
       :close-on-click-modal="false"
       @closed="resetForm"
     >

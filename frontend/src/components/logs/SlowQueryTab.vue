@@ -221,7 +221,7 @@ onUnmounted(stopRefresh)
       <el-empty description="暂无慢查询记录（阈值: {{ threshold }}ms）" />
     </div>
 
-    <el-dialog v-model="dialogVisible" title="慢查询详情" width="640px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="慢查询详情" width="min(760px, 90vw)" destroy-on-close>
       <pre v-if="selectedEntry" class="query-detail">{{ selectedEntry.queryText }}</pre>
     </el-dialog>
   </div>

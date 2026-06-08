@@ -88,7 +88,7 @@
     <el-dialog
       v-model="exportDialogVisible"
       title="导出表结构"
-      width="800px"
+      width="min(860px, 92vw)"
       :close-on-click-modal="false"
     >
       <div class="export-toolbar">

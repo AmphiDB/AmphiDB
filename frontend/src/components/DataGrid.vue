@@ -1,5 +1,24 @@
 <template>
   <div class="data-grid" ref="gridRootRef">
+    <div class="grid-toolbar" ref="toolbarRef">
+      <el-button
+        size="small"
+        :icon="CopyDocument"
+        :disabled="selectedRows.length === 0"
+        @click="copySelectedRowsAsTsv"
+      >
+        复制选中 TSV
+      </el-button>
+      <el-button
+        size="small"
+        :icon="DocumentCopy"
+        :disabled="displayData.length === 0"
+        @click="copyVisibleRowsAsTsv"
+      >
+        复制可见 TSV
+      </el-button>
+    </div>
+
     <!-- 传统表格（支持编辑、正确颜色，分页已限制行数） -->
     <el-table
       :data="displayData"
@@ -67,7 +86,7 @@
     <el-dialog
       v-model="jsonDialogVisible"
       title="JSON 字段"
-      width="700px"
+      width="min(820px, 92vw)"
       :close-on-click-modal="false"
     >
       <div class="json-dialog-toolbar">
@@ -107,6 +126,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, h, onMounted, onUnmounted } from 'vue';
 import { ElCheckbox, ElMessage } from 'element-plus';
+import { CopyDocument, DocumentCopy } from '@element-plus/icons-vue';
 import CellEditor from './CellEditor.vue';
 import type { OrderBy, Column, ForeignKey } from '../types/api';
 
@@ -156,13 +176,15 @@ const pageSize = ref(props.pageSize);
 // 动态表格高度
 const tableHeight = ref(500)
 const gridRootRef = ref<HTMLElement | null>(null)
+const toolbarRef = ref<HTMLElement | null>(null)
 let ro: ResizeObserver | null = null
 
 const updateTableHeight = () => {
   const el = gridRootRef.value
   if (!el) return
   const paginationH = props.showPagination ? 60 : 0
-  const h = el.clientHeight - paginationH
+  const toolbarH = toolbarRef.value?.offsetHeight ?? 0
+  const h = el.clientHeight - paginationH - toolbarH
   if (h > 100) tableHeight.value = h
 }
 
@@ -226,7 +248,7 @@ const virtualColumns = computed(() => {
       const isSelected = selectedRowIndices.value.indexOf(rowIndex) >= 0;
       return h(ElCheckbox, {
         modelValue: isSelected,
-        'onUpdate:modelValue': (checked: boolean) => handleVirtualRowSelection(rowIndex, checked, rowData),
+        'onUpdate:modelValue': (checked: string | number | boolean) => handleVirtualRowSelection(rowIndex, checked === true, rowData),
       });
     },
     headerCellRenderer: () => {
@@ -234,7 +256,7 @@ const virtualColumns = computed(() => {
         selectedRowIndices.value.length === displayData.value.length;
       return h(ElCheckbox, {
         modelValue: allSelected,
-        'onUpdate:modelValue': (checked: boolean) => handleVirtualSelectAll(checked),
+        'onUpdate:modelValue': (checked: string | number | boolean) => handleVirtualSelectAll(checked === true),
       });
     },
   });
@@ -292,6 +314,44 @@ const handleVirtualSelectAll = (checked: boolean) => {
 const handleSelectionChange = (rows: any[]) => {
   selectedRows.value = rows;
   emit('selectionChange', rows);
+};
+
+const encodeTsvCell = (value: any): string => {
+  const text = formatCellValue(value);
+  if (/[\t\r\n"]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+};
+
+const buildRowsTsv = (rows: any[]): string => {
+  const headers = props.columns.map(encodeTsvCell).join('\t');
+  const body = rows.map((row) => {
+    return props.columns.map((column) => encodeTsvCell(row[column])).join('\t');
+  });
+  return [headers, ...body].join('\n');
+};
+
+const copyRowsAsTsv = async (rows: any[], emptyMessage: string, successMessage: string) => {
+  if (rows.length === 0) {
+    ElMessage.warning(emptyMessage);
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(buildRowsTsv(rows));
+    ElMessage.success(successMessage);
+  } catch {
+    ElMessage.error('复制失败，请检查剪贴板权限');
+  }
+};
+
+const copySelectedRowsAsTsv = () => {
+  copyRowsAsTsv(selectedRows.value, '请先选择要复制的行', `已复制 ${selectedRows.value.length} 行`);
+};
+
+const copyVisibleRowsAsTsv = () => {
+  copyRowsAsTsv(displayData.value, '当前没有可复制的数据', `已复制 ${displayData.value.length} 行`);
 };
 
 // 处理排序变化
@@ -472,6 +532,14 @@ defineExpose({
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.grid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+  flex-shrink: 0;
 }
 
 .virtual-table-wrapper {

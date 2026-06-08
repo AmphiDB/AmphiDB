@@ -200,7 +200,7 @@
     <el-dialog
       v-model="showExecuteDialog"
       title="确认执行同步"
-      width="600px"
+      width="min(720px, 90vw)"
     >
       <el-alert
         type="warning"
@@ -241,7 +241,7 @@
     <el-dialog
       v-model="showProgressDialog"
       title="同步进度"
-      width="500px"
+      width="min(600px, 88vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
       :show-close="false"

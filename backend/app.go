@@ -8,6 +8,7 @@ import (
 	"mygui/backend/internal/connection"
 	"mygui/backend/internal/data"
 	"mygui/backend/internal/importexport"
+	"mygui/backend/internal/llm"
 	"mygui/backend/internal/logger"
 	mongocoll "mygui/backend/internal/mongo/collection"
 	mongoconn "mygui/backend/internal/mongo/connection"
@@ -40,6 +41,8 @@ type App struct {
 	queryExecutors       map[string]*query.Executor
 	syncEngines          map[string]*syncengine.SyncEngine
 	importExportServices map[string]*importexport.Service
+	importExportTasks    map[string]context.CancelFunc
+	llmService           *llm.Service
 
 	// 监控管理器
 	monitorManager *monitor.Manager
@@ -63,6 +66,8 @@ func NewApp() *App {
 		queryExecutors:       make(map[string]*query.Executor),
 		syncEngines:          make(map[string]*syncengine.SyncEngine),
 		importExportServices: make(map[string]*importexport.Service),
+		importExportTasks:    make(map[string]context.CancelFunc),
+		llmService:           llm.NewService(nil),
 		mongoCollManagers:    make(map[string]*mongocoll.Manager),
 		mongoDocManagers:     make(map[string]*mongodoc.Manager),
 		mongoQueryExecutors:  make(map[string]*mongoquery.Executor),
