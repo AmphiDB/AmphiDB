@@ -3,6 +3,7 @@ package schema
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"mygui/backend/internal/repository"
@@ -160,17 +161,7 @@ func (m *Manager) generateCreateTableDDL(database string, schema TableSchema) st
 			colDef += " NULL"
 		}
 
-		if col.DefaultValue != nil && *col.DefaultValue != "" {
-			// 检查是否需要引号
-			defaultVal := *col.DefaultValue
-			// 对于特殊值（如 CURRENT_TIMESTAMP, NULL），不加引号
-			if defaultVal == "CURRENT_TIMESTAMP" || defaultVal == "NULL" {
-				colDef += fmt.Sprintf(" DEFAULT %s", defaultVal)
-			} else {
-				// 对于普通值，加引号并转义
-				colDef += fmt.Sprintf(" DEFAULT '%s'", strings.ReplaceAll(defaultVal, "'", "''"))
-			}
-		}
+		colDef += formatDefaultClause(col)
 
 		if col.AutoIncrement {
 			colDef += " AUTO_INCREMENT"
@@ -255,11 +246,55 @@ func (m *Manager) quoteColumns(columns []string) string {
 	return strings.Join(quoted, ", ")
 }
 
+func formatDefaultClause(col repository.Column) string {
+	if col.DefaultValue == nil || *col.DefaultValue == "" {
+		return ""
+	}
+
+	defaultVal := strings.TrimSpace(*col.DefaultValue)
+	upperVal := strings.ToUpper(defaultVal)
+	if upperVal == "CURRENT_TIMESTAMP" || upperVal == "NULL" {
+		return fmt.Sprintf(" DEFAULT %s", upperVal)
+	}
+	if isNumericColumnType(col.Type) && isNumericLiteral(defaultVal) {
+		return fmt.Sprintf(" DEFAULT %s", defaultVal)
+	}
+
+	return fmt.Sprintf(" DEFAULT '%s'", strings.ReplaceAll(defaultVal, "'", "''"))
+}
+
+func isNumericColumnType(columnType string) bool {
+	typeName := strings.ToLower(strings.TrimSpace(columnType))
+	return strings.HasPrefix(typeName, "tinyint") ||
+		strings.HasPrefix(typeName, "smallint") ||
+		strings.HasPrefix(typeName, "mediumint") ||
+		strings.HasPrefix(typeName, "int") ||
+		strings.HasPrefix(typeName, "integer") ||
+		strings.HasPrefix(typeName, "bigint") ||
+		strings.HasPrefix(typeName, "decimal") ||
+		strings.HasPrefix(typeName, "numeric") ||
+		strings.HasPrefix(typeName, "float") ||
+		strings.HasPrefix(typeName, "double") ||
+		strings.HasPrefix(typeName, "real") ||
+		strings.HasPrefix(typeName, "bit") ||
+		strings.HasPrefix(typeName, "bool") ||
+		strings.HasPrefix(typeName, "boolean")
+}
+
+func isNumericLiteral(value string) bool {
+	if value == "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(value, 64)
+	return err == nil
+}
+
 // SchemaChange represents a change to a table schema
 type SchemaChange struct {
-	Type   string      `json:"type"` // ADD_COLUMN, MODIFY_COLUMN, DROP_COLUMN, ADD_INDEX, DROP_INDEX, ADD_FOREIGN_KEY, DROP_FOREIGN_KEY
-	Target string      `json:"target"`
-	Data   interface{} `json:"data"`
+	Type    string      `json:"type"` // ADD_COLUMN, MODIFY_COLUMN, DROP_COLUMN, ADD_INDEX, DROP_INDEX, ADD_FOREIGN_KEY, DROP_FOREIGN_KEY
+	Target  string      `json:"target"`
+	Data    interface{} `json:"data"`
+	OldData interface{} `json:"oldData,omitempty"`
 }
 
 // AlterTable modifies a table schema
@@ -321,11 +356,11 @@ func (m *Manager) detectDataLossWarnings(changes []SchemaChange) []string {
 			warnings = append(warnings, fmt.Sprintf("Dropping column '%s' will delete all data in that column", change.Target))
 
 		case "MODIFY_COLUMN":
-			// For MODIFY_COLUMN, we need to check what actually changed
-			// The warning should only appear if we're changing from NULL to NOT NULL
-			// Not if the column was already NOT NULL
-			// Since we don't have the old column info here, we'll skip this warning
-			// The comparison logic should prevent false positives
+			oldCol, hasOld := columnFromChangeData(change.OldData)
+			newCol, hasNew := columnFromChangeData(change.Data)
+			if hasOld && hasNew && oldCol.Nullable && !newCol.Nullable {
+				warnings = append(warnings, fmt.Sprintf("Changing column '%s' to NOT NULL may fail if existing rows contain NULL values", change.Target))
+			}
 
 		case "DROP_INDEX":
 			// Dropping primary key or unique index might affect data integrity
@@ -339,6 +374,18 @@ func (m *Manager) detectDataLossWarnings(changes []SchemaChange) []string {
 	}
 
 	return warnings
+}
+
+func columnFromChangeData(data interface{}) (repository.Column, bool) {
+	switch col := data.(type) {
+	case repository.Column:
+		return col, true
+	case *repository.Column:
+		if col != nil {
+			return *col, true
+		}
+	}
+	return repository.Column{}, false
 }
 
 // generateAlterTableStatements generates ALTER TABLE SQL statements
@@ -357,17 +404,7 @@ func (m *Manager) generateAlterTableStatements(database, table string, changes [
 					colDef += " NOT NULL"
 				}
 
-				if col.DefaultValue != nil && *col.DefaultValue != "" {
-					// 检查是否需要引号
-					defaultVal := *col.DefaultValue
-					// 对于特殊值（如 CURRENT_TIMESTAMP, NULL），不加引号
-					if defaultVal == "CURRENT_TIMESTAMP" || defaultVal == "NULL" {
-						colDef += fmt.Sprintf(" DEFAULT %s", defaultVal)
-					} else {
-						// 对于普通值，加引号并转义
-						colDef += fmt.Sprintf(" DEFAULT '%s'", strings.ReplaceAll(defaultVal, "'", "''"))
-					}
-				}
+				colDef += formatDefaultClause(col)
 
 				if col.AutoIncrement {
 					colDef += " AUTO_INCREMENT"
@@ -388,17 +425,7 @@ func (m *Manager) generateAlterTableStatements(database, table string, changes [
 					colDef += " NOT NULL"
 				}
 
-				if col.DefaultValue != nil && *col.DefaultValue != "" {
-					// 检查是否需要引号
-					defaultVal := *col.DefaultValue
-					// 对于特殊值（如 CURRENT_TIMESTAMP, NULL），不加引号
-					if defaultVal == "CURRENT_TIMESTAMP" || defaultVal == "NULL" {
-						colDef += fmt.Sprintf(" DEFAULT %s", defaultVal)
-					} else {
-						// 对于普通值，加引号并转义
-						colDef += fmt.Sprintf(" DEFAULT '%s'", strings.ReplaceAll(defaultVal, "'", "''"))
-					}
-				}
+				colDef += formatDefaultClause(col)
 
 				if col.AutoIncrement {
 					colDef += " AUTO_INCREMENT"
@@ -510,9 +537,10 @@ func CompareSchemas(oldSchema, newSchema *TableSchema) []SchemaChange {
 			// Check if column was modified
 			if !columnsEqual(oldCol, newCol) {
 				changes = append(changes, SchemaChange{
-					Type:   "MODIFY_COLUMN",
-					Target: newCol.Name,
-					Data:   newCol,
+					Type:    "MODIFY_COLUMN",
+					Target:  newCol.Name,
+					Data:    newCol,
+					OldData: oldCol,
 				})
 			}
 		} else {

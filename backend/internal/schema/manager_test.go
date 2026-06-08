@@ -30,15 +30,15 @@ func TestTableSchemaStruct(t *testing.T) {
 		Charset:     "utf8mb4",
 		Comment:     "User table",
 	}
-	
+
 	if schema.Name != "users" {
 		t.Errorf("Expected name 'users', got '%s'", schema.Name)
 	}
-	
+
 	if len(schema.Columns) != 1 {
 		t.Errorf("Expected 1 column, got %d", len(schema.Columns))
 	}
-	
+
 	if schema.Engine != "InnoDB" {
 		t.Errorf("Expected engine 'InnoDB', got '%s'", schema.Engine)
 	}
@@ -55,11 +55,11 @@ func TestSchemaChangeStruct(t *testing.T) {
 			Nullable: false,
 		},
 	}
-	
+
 	if change.Type != "ADD_COLUMN" {
 		t.Errorf("Expected type 'ADD_COLUMN', got '%s'", change.Type)
 	}
-	
+
 	if change.Target != "email" {
 		t.Errorf("Expected target 'email', got '%s'", change.Target)
 	}
@@ -70,7 +70,7 @@ func TestNewManager(t *testing.T) {
 	// We can't create a real DB connection in unit tests
 	// Just verify the constructor doesn't panic with nil
 	manager := NewManager(nil)
-	
+
 	if manager == nil {
 		t.Error("Expected manager to be created")
 	}
@@ -79,7 +79,7 @@ func TestNewManager(t *testing.T) {
 // TestQuoteColumns tests the quoteColumns helper method
 func TestQuoteColumns(t *testing.T) {
 	manager := NewManager(nil)
-	
+
 	tests := []struct {
 		input    []string
 		expected string
@@ -88,7 +88,7 @@ func TestQuoteColumns(t *testing.T) {
 		{[]string{"id", "name"}, "`id`, `name`"},
 		{[]string{"user_id", "role_id", "created_at"}, "`user_id`, `role_id`, `created_at`"},
 	}
-	
+
 	for _, test := range tests {
 		result := manager.quoteColumns(test.input)
 		if result != test.expected {
@@ -100,7 +100,7 @@ func TestQuoteColumns(t *testing.T) {
 // TestDetectDataLossWarnings tests data loss detection
 func TestDetectDataLossWarnings(t *testing.T) {
 	manager := NewManager(nil)
-	
+
 	tests := []struct {
 		name     string
 		changes  []SchemaChange
@@ -119,6 +119,11 @@ func TestDetectDataLossWarnings(t *testing.T) {
 				{
 					Type:   "MODIFY_COLUMN",
 					Target: "email",
+					OldData: repository.Column{
+						Name:     "email",
+						Type:     "varchar(255)",
+						Nullable: true,
+					},
 					Data: repository.Column{
 						Name:     "email",
 						Type:     "varchar(255)",
@@ -127,6 +132,26 @@ func TestDetectDataLossWarnings(t *testing.T) {
 				},
 			},
 			expected: 1,
+		},
+		{
+			name: "Modify already NOT NULL no warning",
+			changes: []SchemaChange{
+				{
+					Type:   "MODIFY_COLUMN",
+					Target: "email",
+					OldData: repository.Column{
+						Name:     "email",
+						Type:     "varchar(255)",
+						Nullable: false,
+					},
+					Data: repository.Column{
+						Name:     "email",
+						Type:     "varchar(255)",
+						Nullable: false,
+					},
+				},
+			},
+			expected: 0,
 		},
 		{
 			name: "Drop foreign key warning",
@@ -151,7 +176,7 @@ func TestDetectDataLossWarnings(t *testing.T) {
 			expected: 0,
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			warnings := manager.detectDataLossWarnings(test.changes)
@@ -165,7 +190,7 @@ func TestDetectDataLossWarnings(t *testing.T) {
 // TestGenerateCreateTableDDL tests CREATE TABLE statement generation
 func TestGenerateCreateTableDDL(t *testing.T) {
 	manager := NewManager(nil)
-	
+
 	defaultVal := "0"
 	schema := TableSchema{
 		Name: "users",
@@ -200,9 +225,9 @@ func TestGenerateCreateTableDDL(t *testing.T) {
 		Charset: "utf8mb4",
 		Comment: "User table",
 	}
-	
+
 	ddl := manager.generateCreateTableDDL("testdb", schema)
-	
+
 	// Verify DDL contains expected elements
 	expectedElements := []string{
 		"CREATE TABLE `testdb`.`users`",
@@ -214,7 +239,7 @@ func TestGenerateCreateTableDDL(t *testing.T) {
 		"CHARSET=utf8mb4",
 		"COMMENT='User table'",
 	}
-	
+
 	for _, element := range expectedElements {
 		if !contains(ddl, element) {
 			t.Errorf("Expected DDL to contain '%s', but it doesn't.\nGenerated DDL:\n%s", element, ddl)
@@ -225,7 +250,7 @@ func TestGenerateCreateTableDDL(t *testing.T) {
 // TestGenerateAlterTableStatements tests ALTER TABLE statement generation
 func TestGenerateAlterTableStatements(t *testing.T) {
 	manager := NewManager(nil)
-	
+
 	changes := []SchemaChange{
 		{
 			Type:   "ADD_COLUMN",
@@ -250,20 +275,20 @@ func TestGenerateAlterTableStatements(t *testing.T) {
 			},
 		},
 	}
-	
+
 	statements := manager.generateAlterTableStatements("testdb", "users", changes)
-	
+
 	if len(statements) != 3 {
 		t.Errorf("Expected 3 statements, got %d", len(statements))
 	}
-	
+
 	// Verify each statement type
 	expectedPatterns := []string{
 		"ALTER TABLE `testdb`.`users` ADD COLUMN `email` varchar(255) NOT NULL",
 		"ALTER TABLE `testdb`.`users` DROP COLUMN `old_field`",
 		"ALTER TABLE `testdb`.`users` ADD UNIQUE KEY `idx_email` (`email`)",
 	}
-	
+
 	for i, expected := range expectedPatterns {
 		if i < len(statements) && statements[i] != expected {
 			t.Errorf("Statement %d:\nExpected: %s\nGot:      %s", i, expected, statements[i])
@@ -273,9 +298,9 @@ func TestGenerateAlterTableStatements(t *testing.T) {
 
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && 
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-		containsMiddle(s, substr)))
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			containsMiddle(s, substr)))
 }
 
 func containsMiddle(s, substr string) bool {
